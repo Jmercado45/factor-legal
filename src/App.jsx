@@ -7,7 +7,7 @@ import {
   ShieldCheck, ShieldAlert, ShieldX, Shield, Home, Database,
   ClipboardCheck, Coins, Info
 } from "lucide-react";
-import { db } from "./firebase.js";
+import { db } from "/src/firebase.js";
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot
 } from "firebase/firestore";
