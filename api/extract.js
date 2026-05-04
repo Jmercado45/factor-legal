@@ -1,8 +1,8 @@
 export const config = {
   api: {
-    bodyParser: { sizeLimit: '20mb' },
+    bodyParser: { sizeLimit: '50mb' },
   },
-  maxDuration: 60,
+  maxDuration: 120,
 };
 
 const PROMPT = `Eres un experto jurídico colombiano en responsabilidad del Estado y cesión de derechos litigiosos.
