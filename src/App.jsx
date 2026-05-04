@@ -264,7 +264,7 @@ function PdfExtractor({ onExtracted, onSkip }) {
       const pdfs = await Promise.all(files.map(f => fileToBase64(f)));
 
       setStatus("IA analizando expediente completo...");
-      const res = await fetch("/api/extract", {
+      const res = await fetch("https://factor-legal-extract.jmercado.workers.dev, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfs }),
