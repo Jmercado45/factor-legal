@@ -264,7 +264,7 @@ function PdfExtractor({ onExtracted, onSkip }) {
       const pdfs = await Promise.all(files.map(f => fileToBase64(f)));
 
       setStatus("IA analizando expediente completo...");
-      const res = await fetch("https://factor-legal-extract.jmercado.workers.dev, {
+      const res = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfs }),
@@ -276,8 +276,10 @@ function PdfExtractor({ onExtracted, onSkip }) {
       }
 
       const data = await res.json();
-if (!data.result) throw new Error("No se pudo extraer información. Intenta de nuevo.");
-const extracted = data.result;
+      const text = data.content?.find(b => b.type === "text")?.text || "";
+
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("La IA no devolvió datos estructurados. Intenta de nuevo.");
 
       const extracted = JSON.parse(match[0]);
       setStatus("¡Extracción completada!");
