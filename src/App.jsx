@@ -276,10 +276,8 @@ function PdfExtractor({ onExtracted, onSkip }) {
       }
 
       const data = await res.json();
-      const text = data.content?.find(b => b.type === "text")?.text || "";
-
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error("La IA no devolvió datos estructurados. Intenta de nuevo.");
+if (!data.result) throw new Error("No se pudo extraer información. Intenta de nuevo.");
+const extracted = data.result;
 
       const extracted = JSON.parse(match[0]);
       setStatus("¡Extracción completada!");
