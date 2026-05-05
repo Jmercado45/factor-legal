@@ -24,6 +24,8 @@ const C = {
   purple:"#6B3FA0", purpleSoft:"#F0EBF8",
 };
 
+const WORKER_URL = "https://factor-legal-extract.jmercado.workers.dev";
+
 const ENTIDADES = [
   {id:"policia",nombre:"Policía Nacional",minDef:false},
   {id:"ejercito",nombre:"Ejército Nacional",minDef:true},
@@ -124,7 +126,7 @@ function evaluarCaso(caso) {
     if (diff>5) alertas.push({tipo:"rechazo",titulo:"Prescripción de la obligación",detalle:`Cuenta de cobro radicada ${diff.toFixed(2)} años después de la ejecutoria. Supera el término de 5 años.`});
   }
   if (!caso.fechaCuentaCobro) alertas.push({tipo:"pendiente",titulo:"Cuenta de cobro pendiente",detalle:"No se ha registrado fecha de radicación de la cuenta de cobro."});
-  if (!caso.fechaEjecutoria)  alertas.push({tipo:"pendiente",titulo:"Constancia de ejecutoria pendiente",detalle:"Sin fecha de ejecutoria registrada."});
+  if (!caso.fechaEjecutoria) alertas.push({tipo:"pendiente",titulo:"Constancia de ejecutoria pendiente",detalle:"Sin fecha de ejecutoria registrada."});
   const motivos={conciliadoIntCorrientes:"Fallo conciliado con intereses corrientes/DTF.",conciliadoSinInt:"Fallo conciliado sin pago de intereses.",policiaSMLMVPago:"Policía: pago en SMLMV al momento del pago.",reparacionIntIPC:"Reparación directa: intereses + IPC.",ramaSinArtPago:"Rama Judicial: sin artículos de pago en resolutiva."};
   if (caso.afectacionIntereses&&caso.afectacionIntereses!=="ninguna"&&motivos[caso.afectacionIntereses])
     alertas.push({tipo:"rechazo",titulo:"Afectación de intereses de pago",detalle:motivos[caso.afectacionIntereses]+" Causal de rechazo."});
@@ -149,7 +151,7 @@ function evaluarCaso(caso) {
   if (numMenores>0&&caso.tipoBeneficiariosMenores==="directos")
     alertas.push({tipo:"alerta",titulo:"Retención por menores de edad",detalle:`${numMenores} menor(es) directo(s). Retención COP 1.000.000 c/u.`});
   if (caso.antecedentesGraves) alertas.push({tipo:"alerta",titulo:"Antecedentes judiciales graves",detalle:"Beneficiarios o apoderado en listas restrictivas."});
-  if (caso.demandaAlimentos)   alertas.push({tipo:"alerta",titulo:"Demanda activa por alimentos",detalle:"Excluir beneficiario de la cesión."});
+  if (caso.demandaAlimentos) alertas.push({tipo:"alerta",titulo:"Demanda activa por alimentos",detalle:"Excluir beneficiario de la cesión."});
   if (caso.sucesion&&(condenaM*1000000)>(1680*UVT)&&!caso.pazSalvoDianCausante)
     alertas.push({tipo:"pendiente",titulo:"Paz y salvo DIAN del causante pendiente",detalle:`Condena superior a 1.680 UVT (COP ${(1680*UVT/1000000).toFixed(1)} M).`});
   const docs=caso.documentos||{};
@@ -225,7 +227,7 @@ function StatCard({label,value,sub,icon:Ic,accent=C.navy}) {
 
 const inp={width:"100%",padding:"8px 12px",fontSize:13,borderRadius:6,border:`1px solid ${C.greySoft}`,background:C.greyBg,outline:"none",boxSizing:"border-box"};
 
-// ─── PDF EXTRACTOR ────────────────────────────────────────────
+// ─── PDF EXTRACTOR ─────────────────────────────────────────────
 function PdfExtractor({ onExtracted, onSkip }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -257,12 +259,12 @@ function PdfExtractor({ onExtracted, onSkip }) {
   }
 
   async function compressIfNeeded(file) {
-    const MAX_SIZE = 4 * 1024 * 1024; // 4MB
+    const MAX_SIZE = 3 * 1024 * 1024; // 3MB
     if (file.size <= MAX_SIZE) return file;
     try {
       const arrayBuffer = await file.arrayBuffer();
       const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-      const compressed = await pdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
+      const compressed = await pdfDoc.save({ useObjectStreams: true });
       const blob = new Blob([compressed], { type: "application/pdf" });
       if (blob.size < file.size) {
         return new File([blob], file.name, { type: "application/pdf" });
@@ -277,37 +279,67 @@ function PdfExtractor({ onExtracted, onSkip }) {
     if (files.length === 0) return;
     setLoading(true);
     setError("");
+    const merged = {};
+
     try {
-      setStatus(`Leyendo ${files.length} documento(s)...`);
-      const pdfs = await Promise.all(files.map(f => fileToBase64(f)));
+      for (let i = 0; i < files.length; i++) {
+        setStatus(`Analizando documento ${i + 1} de ${files.length}: ${files[i].name}`);
 
-      setStatus("IA analizando expediente completo...");
-      const res = await fetch("/api/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfs }),
-      });
+        let compressed;
+        try {
+          compressed = await compressIfNeeded(files[i]);
+        } catch {
+          compressed = files[i];
+        }
 
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error || `Error del servidor (${res.status})`);
+        let b64;
+        try {
+          b64 = await fileToBase64(compressed);
+        } catch {
+          console.warn(`No se pudo leer: ${files[i].name}`);
+          continue;
+        }
+
+        try {
+          const res = await fetch(WORKER_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pdfs: [b64] }),
+          });
+
+          if (!res.ok) {
+            console.warn(`Error en doc ${i+1} (${files[i].name}): ${res.status}`);
+            continue;
+          }
+
+          const data = await res.json();
+          if (data.result) {
+            for (const key of Object.keys(data.result)) {
+              if (key === "beneficiarios" || key === "docsEncontrados") {
+                merged[key] = [...(merged[key] || []), ...(data.result[key] || [])];
+              } else if (data.result[key] !== null && data.result[key] !== undefined && data.result[key] !== "") {
+                if (!merged[key]) merged[key] = data.result[key];
+              }
+            }
+          }
+        } catch (fetchErr) {
+          console.warn(`Fetch falló en doc ${i+1}: ${fetchErr.message}`);
+          continue;
+        }
       }
 
-      const data = await res.json();
-      const text = data.content?.find(b => b.type === "text")?.text || "";
+      if (Object.keys(merged).length === 0) {
+        throw new Error("No se pudo extraer información de los documentos. Verifica que los PDFs tengan texto legible.");
+      }
 
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error("La IA no devolvió datos estructurados. Intenta de nuevo.");
-
-      const extracted = JSON.parse(match[0]);
       setStatus("¡Extracción completada!");
-      setTimeout(() => onExtracted(extracted), 600);
+      setTimeout(() => onExtracted(merged), 800);
 
     } catch (err) {
       setError("Error: " + err.message);
     } finally {
       setLoading(false);
-      if (!error) setStatus("");
+      setStatus("");
     }
   }
 
@@ -321,7 +353,6 @@ function PdfExtractor({ onExtracted, onSkip }) {
         <p style={{fontSize:13,color:C.greyMid,margin:0}}>Sube los PDFs del expediente y la IA llenará el formulario automáticamente</p>
       </div>
 
-      {/* Drop zone */}
       <div
         onDragOver={e=>{e.preventDefault();setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
@@ -336,18 +367,19 @@ function PdfExtractor({ onExtracted, onSkip }) {
           onChange={e=>addFiles(e.target.files)}/>
       </div>
 
-      {/* File list */}
       {files.length > 0 && (
         <div style={{marginBottom:16}}>
           <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.greyMid,marginBottom:8}}>
-            {files.length} DOCUMENTO(S) CARGADO(S)
+            {files.length} DOCUMENTO(S) CARGADO(S) — {(files.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1)} MB total
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {files.map((f,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:C.greyBg,borderRadius:6,border:`1px solid ${C.greySoft}`}}>
                 <FileText size={14} style={{color:C.navy,flexShrink:0}}/>
                 <div style={{flex:1,fontSize:12,color:C.charcoal,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
-                <div style={{fontSize:11,color:C.greyMid,flexShrink:0}}>{(f.size/1024/1024).toFixed(1)} MB</div>
+                <div style={{fontSize:11,color:f.size>3*1024*1024?C.amber:C.greyMid,flexShrink:0,fontWeight:f.size>3*1024*1024?"bold":"normal"}}>
+                  {(f.size/1024/1024).toFixed(1)} MB {f.size>3*1024*1024?"(se comprimirá)":""}
+                </div>
                 <button onClick={e=>{e.stopPropagation();removeFile(i);}} style={{background:"none",border:"none",cursor:"pointer",padding:2}}>
                   <X size={13} style={{color:C.red}}/>
                 </button>
@@ -373,27 +405,27 @@ function PdfExtractor({ onExtracted, onSkip }) {
 
       <div style={{display:"flex",gap:12}}>
         <button onClick={extract} disabled={files.length===0||loading}
-          style={{flex:1,padding:"12px",borderRadius:6,border:"none",background:files.length>0&&!loading?C.purple:"#ccc",
-            color:"white",fontWeight:"bold",fontSize:13,cursor:files.length>0&&!loading?"pointer":"not-allowed",
+          style={{flex:1,padding:"12px",borderRadius:6,border:"none",
+            background:files.length>0&&!loading?C.purple:"#ccc",
+            color:"white",fontWeight:"bold",fontSize:13,
+            cursor:files.length>0&&!loading?"pointer":"not-allowed",
             display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
           <Sparkles size={15}/>
           {loading?"Analizando...":"Analizar con IA"}
         </button>
         <button onClick={onSkip}
-          style={{padding:"12px 20px",borderRadius:6,border:`1px solid ${C.greySoft}`,background:"white",
-            color:C.greyMid,fontWeight:"bold",fontSize:13,cursor:"pointer"}}>
+          style={{padding:"12px 20px",borderRadius:6,border:`1px solid ${C.greySoft}`,background:"white",color:C.greyMid,fontWeight:"bold",fontSize:13,cursor:"pointer"}}>
           Llenar manualmente
         </button>
       </div>
-
-      <div style={{marginTop:16,fontSize:11,color:C.greyMid,textAlign:"center",fontStyle:"italic"}}>
-        Soporta PDFs digitales y escaneados · Todos los documentos del expediente
+      <div style={{marginTop:12,fontSize:11,color:C.greyMid,textAlign:"center",fontStyle:"italic"}}>
+        Los archivos grandes se comprimen automáticamente antes de enviar
       </div>
     </div>
   );
 }
 
-// ─── LOGIN ────────────────────────────────────────────────────
+// ─── LOGIN ─────────────────────────────────────────────────────
 function Login({onLogin}) {
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
@@ -420,15 +452,20 @@ function Login({onLogin}) {
             <label style={{display:"block",fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:6}}>USUARIO</label>
             <div style={{position:"relative"}}>
               <User size={15} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:C.greyMid}}/>
-              <input style={{...inp,paddingLeft:34}} value={username} placeholder="usuario" onChange={e=>setUsername(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
+              <input style={{...inp,paddingLeft:34}} value={username} placeholder="usuario"
+                onChange={e=>setUsername(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
             </div>
           </div>
           <div style={{marginBottom:16}}>
             <label style={{display:"block",fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:6}}>CONTRASEÑA</label>
             <div style={{position:"relative"}}>
               <Lock size={15} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:C.greyMid}}/>
-              <input style={{...inp,paddingLeft:34,paddingRight:36}} type={showPwd?"text":"password"} value={password} placeholder="••••••" onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
-              <button onClick={()=>setShowPwd(!showPwd)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.greyMid}}>{showPwd?<EyeOff size={15}/>:<Eye size={15}/>}</button>
+              <input style={{...inp,paddingLeft:34,paddingRight:36}} type={showPwd?"text":"password"}
+                value={password} placeholder="••••••"
+                onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
+              <button onClick={()=>setShowPwd(!showPwd)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.greyMid}}>
+                {showPwd?<EyeOff size={15}/>:<Eye size={15}/>}
+              </button>
             </div>
           </div>
           {error&&<div style={{background:C.redSoft,color:C.red,borderRadius:6,padding:"10px 12px",display:"flex",alignItems:"center",gap:8,fontSize:12,marginBottom:16}}><AlertCircle size={14}/>{error}</div>}
@@ -653,6 +690,7 @@ function Sec({title,icon:Ic,children}) {
     </div>
   );
 }
+
 function Fld({label,required,helper,span=1,children}) {
   return (
     <div style={{gridColumn:`span ${span}`}}>
@@ -822,9 +860,8 @@ function Step4({caso,upd,updDoc}) {
   );
 }
 
-// ─── FORMULARIO CON IA ────────────────────────────────────────
 function CasoForm({initial,onSave,onCancel,currentUser}) {
-  const [phase,setPhase]=useState("upload"); // "upload" | "form"
+  const [phase,setPhase]=useState("upload");
   const [step,setStep]=useState(1);
   const [caso,setCaso]=useState(initial||{
     codigo:"FL-"+Date.now().toString().slice(-6),
@@ -838,37 +875,23 @@ function CasoForm({initial,onSave,onCancel,currentUser}) {
   const updDoc=(id,v)=>setCaso(p=>({...p,documentos:{...(p.documentos||{}),[id]:v}}));
 
   function applyExtracted(data) {
-    const map = {
-      demandanteNombre: data.demandanteNombre,
-      demandanteCC:     data.demandanteCC,
-      apoderadoNombre:  data.apoderadoNombre,
-      porcHonorarios:   data.porcHonorarios,
-      entidad:          data.entidad,
-      tipoProceso:      data.tipoProceso,
-      escenario:        data.escenario,
-      regimen:          data.regimen,
-      fechaEjecutoria:  data.fechaEjecutoria,
-      fechaCuentaCobro: data.fechaCuentaCobro,
-      unicaInstancia:   data.unicaInstancia,
-      gradoConsultaSurtido: data.gradoConsultaSurtido,
-      valorCapital:     data.valorCapital,
-      valorIntereses:   data.valorIntereses,
-      valorCostas:      data.valorCostas,
-      valorTotalCondenaResolutiva: data.valorTotalCondenaResolutiva,
-      afectacionIntereses: data.afectacionIntereses || "ninguna",
-      condenaSolidaria: data.condenaSolidaria || "no",
-      ejecutivoRadicado: data.ejecutivoRadicado,
-      tipoCesion:       data.tipoCesion || "total",
-      numBeneficiarios: data.numBeneficiarios,
-      numMenores:       data.numMenores || 0,
-      _resumenHechos:   data.resumenHechos,
-      _iaExtracted:     true,
+    const map={
+      demandanteNombre:data.demandanteNombre,demandanteCC:data.demandanteCC,
+      apoderadoNombre:data.apoderadoNombre,porcHonorarios:data.porcHonorarios,
+      entidad:data.entidad,tipoProceso:data.tipoProceso,escenario:data.escenario,
+      regimen:data.regimen,fechaEjecutoria:data.fechaEjecutoria,
+      fechaCuentaCobro:data.fechaCuentaCobro,unicaInstancia:data.unicaInstancia,
+      gradoConsultaSurtido:data.gradoConsultaSurtido,valorCapital:data.valorCapital,
+      valorIntereses:data.valorIntereses,valorCostas:data.valorCostas,
+      valorTotalCondenaResolutiva:data.valorTotalCondenaResolutiva,
+      afectacionIntereses:data.afectacionIntereses||"ninguna",
+      condenaSolidaria:data.condenaSolidaria||"no",ejecutivoRadicado:data.ejecutivoRadicado,
+      tipoCesion:data.tipoCesion||"total",numBeneficiarios:data.numBeneficiarios,
+      numMenores:data.numMenores||0,_resumenHechos:data.resumenHechos,_iaExtracted:true,
     };
-    // Remove null/undefined values
-    Object.keys(map).forEach(k => { if (map[k] == null) delete map[k]; });
-    setCaso(prev => ({ ...prev, ...map }));
-    setPhase("form");
-    setStep(1);
+    Object.keys(map).forEach(k=>{if(map[k]==null)delete map[k];});
+    setCaso(prev=>({...prev,...map}));
+    setPhase("form");setStep(1);
   }
 
   const valid=s=>{
@@ -881,28 +904,19 @@ function CasoForm({initial,onSave,onCancel,currentUser}) {
 
   return (
     <div style={{maxWidth:1000,margin:"0 auto",padding:"32px 24px"}}>
-      <button onClick={onCancel} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",cursor:"pointer",color:C.gold,fontSize:11,fontWeight:"bold",marginBottom:8}}>
-        <ArrowLeft size={12}/>VOLVER
-      </button>
+      <button onClick={onCancel} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",cursor:"pointer",color:C.gold,fontSize:11,fontWeight:"bold",marginBottom:8}}><ArrowLeft size={12}/>VOLVER</button>
       <div style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.18em",color:C.gold,marginBottom:4}}>{initial?"EDITAR CASO":"NUEVO CASO"}</div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
-        <h1 style={{color:C.navy,fontSize:24,fontFamily:"Georgia,serif",margin:0}}>
-          {phase==="upload"?"Analizar expediente con IA":`Estudio de elegibilidad — ${caso.codigo}`}
-        </h1>
-        {caso._iaExtracted&&(
-          <span style={{display:"inline-flex",alignItems:"center",gap:4,background:C.purpleSoft,color:C.purple,padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:"bold"}}>
-            <Sparkles size={12}/>IA
-          </span>
-        )}
+        <h1 style={{color:C.navy,fontSize:24,fontFamily:"Georgia,serif",margin:0}}>{phase==="upload"?"Analizar expediente con IA":`Estudio de elegibilidad — ${caso.codigo}`}</h1>
+        {caso._iaExtracted&&<span style={{display:"inline-flex",alignItems:"center",gap:4,background:C.purpleSoft,color:C.purple,padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:"bold"}}><Sparkles size={12}/>IA</span>}
       </div>
 
-      {phase === "upload" ? (
+      {phase==="upload"?(
         <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,padding:32}}>
           <PdfExtractor onExtracted={applyExtracted} onSkip={()=>setPhase("form")}/>
         </div>
-      ) : (
+      ):(
         <>
-          {/* Stepper */}
           <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,padding:16,marginBottom:24,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             {steps.map((s,i)=>(
               <div key={s.n} style={{display:"flex",alignItems:"center",flex:i<steps.length-1?1:"none"}}>
@@ -916,14 +930,12 @@ function CasoForm({initial,onSave,onCancel,currentUser}) {
               </div>
             ))}
           </div>
-
           <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,padding:24,marginBottom:24}}>
             {step===1&&<Step1 caso={caso} upd={upd}/>}
             {step===2&&<Step2 caso={caso} upd={upd}/>}
             {step===3&&<Step3 caso={caso} upd={upd}/>}
             {step===4&&<Step4 caso={caso} upd={upd} updDoc={updDoc}/>}
           </div>
-
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",gap:8}}>
               <button onClick={onCancel} style={{background:"none",border:"none",cursor:"pointer",color:C.greyMid,fontWeight:"bold",fontSize:12}}>CANCELAR</button>
@@ -948,7 +960,6 @@ function CasoForm({initial,onSave,onCancel,currentUser}) {
   );
 }
 
-// ─── FICHA TÉCNICA ────────────────────────────────────────────
 function Ficha({caso,onBack,onEdit,onExport}) {
   const entidad=ENTIDADES.find(e=>e.id===caso.entidad);
   const tipoP=TIPOS_PROCESO.find(t=>t.id===caso.tipoProceso);
@@ -963,9 +974,11 @@ function Ficha({caso,onBack,onEdit,onExport}) {
   const vSoft=ev.veredicto==="apto"?C.greenSoft:ev.veredicto==="apto_con_alertas"?C.amberSoft:C.redSoft;
   const vLabel=ev.veredicto==="apto"?"APTO PARA DESCUENTO":ev.veredicto==="apto_con_alertas"?"APTO CON ALERTAS":"NO APTO PARA DESCUENTO";
   const VIco=ev.veredicto==="apto"?ShieldCheck:ev.veredicto==="apto_con_alertas"?ShieldAlert:ShieldX;
+
   function DR({label,value}){return(<div style={{display:"grid",gridTemplateColumns:"45% 55%",gap:12,padding:"10px 16px",borderBottom:`1px solid ${C.greySoft}`,fontSize:12}}><div style={{fontWeight:"bold",color:C.greyMid,fontSize:11,letterSpacing:"0.06em"}}>{label}</div><div style={{color:C.charcoal}}>{value||"—"}</div></div>);}
   function DC({title,icon:Ic,children}){return(<div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden",marginBottom:16}}><div style={{background:C.navy,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}><Ic size={13} style={{color:C.gold}}/><span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>{title.toUpperCase()}</span></div>{children}</div>);}
   function AG({title,items,color,bg,Ic}){return(<div style={{border:`1px solid ${color}`,borderRadius:8,overflow:"hidden",marginBottom:16}}><div style={{background:color,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}><Ic size={13} style={{color:"white"}}/><span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>{title} ({items.length})</span></div><div style={{padding:12,display:"flex",flexDirection:"column",gap:8}}>{items.map((a,i)=>(<div key={i} style={{background:bg,borderRadius:6,padding:12}}><div style={{fontWeight:"bold",fontSize:12,color,marginBottom:4}}>{a.titulo}</div><div style={{fontSize:11,color:C.charcoal,lineHeight:1.5,whiteSpace:"pre-line"}}>{a.detalle}</div></div>))}</div></div>);}
+
   return (
     <div style={{maxWidth:1200,margin:"0 auto",padding:"32px 24px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24}}>
@@ -1054,7 +1067,6 @@ function dl(content,name,mime) {
   const b=new Blob([content],{type:mime});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);
 }
 
-// ─── APP ──────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null);
   const [casos,setCasos]=useState([]);
@@ -1079,8 +1091,7 @@ export default function App() {
     const exists=casos.find(c=>c.id===caso.id);
     let next;
     if(exists){next=casos.map(c=>c.id===caso.id?caso:c);}else{next=[...casos,{...caso,id:"c-"+Date.now()}];}
-    setCasos(next);
-    await sSet("fl:casos",next,true);
+    setCasos(next);await sSet("fl:casos",next,true);
     const savedId=caso.id||next[next.length-1].id;
     setSelId(savedId);setEditing(null);setView("ficha");
   }
@@ -1094,7 +1105,7 @@ export default function App() {
   function nav(v){setView(v);setEditing(null);}
 
   if(loading){return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.cream}}><div style={{textAlign:"center"}}><div style={{width:48,height:48,borderRadius:"50%",background:C.navy,color:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",fontWeight:"bold",fontSize:18,border:`2px solid ${C.gold}`,margin:"0 auto 16px"}}>FL</div><div style={{fontSize:12,fontStyle:"italic",color:C.greyMid}}>Conectando con Firebase...</div></div></div>);}
-  if(!user)return<Login onLogin={login}/>;
+  if(!user)return <Login onLogin={login}/>;
 
   return (
     <div style={{minHeight:"100vh",background:C.cream,fontFamily:"system-ui,-apple-system,sans-serif"}}>
