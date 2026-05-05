@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { PDFDocument } from "pdf-lib";
 import {
   Building2, FileText, Users, CheckCircle2, Clock, Download, Plus,
   Search, ChevronRight, Briefcase, TrendingUp, AlertCircle,
@@ -253,6 +254,23 @@ function PdfExtractor({ onExtracted, onSkip }) {
       r.onerror = rej;
       r.readAsDataURL(file);
     });
+  }
+
+  async function compressIfNeeded(file) {
+    const MAX_SIZE = 4 * 1024 * 1024; // 4MB
+    if (file.size <= MAX_SIZE) return file;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      const compressed = await pdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
+      const blob = new Blob([compressed], { type: "application/pdf" });
+      if (blob.size < file.size) {
+        return new File([blob], file.name, { type: "application/pdf" });
+      }
+      return file;
+    } catch {
+      return file;
+    }
   }
 
   async function extract() {
