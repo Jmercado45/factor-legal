@@ -180,12 +180,10 @@ function calcKPIs(caso) {
   return {capital,intereses,desembolso,nominal,descuento,moic,mesesEjec};
 }
 
-const sGet = async (key, fallback, shared=true) => {
-  try { const r=await window.storage.get(key,shared); return r?JSON.parse(r.value):fallback; } catch { return fallback; }
-};
-const sSet = async (key, value, shared=true) => {
-  try { await window.storage.set(key,JSON.stringify(value),shared); } catch {}
-};
+// localStorage for session-only user persistence (non-sensitive)
+const lsGet = (key, fallback) => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):fallback; } catch { return fallback; }};
+const lsSet = (key, value) => { try { localStorage.setItem(key,JSON.stringify(value)); } catch {} };
+const lsDel = (key) => { try { localStorage.removeItem(key); } catch {} };
 
 const SEED_USERS = [
   {id:"u-ceo",username:"jesus",password:"fl2026",nombre:"Jesús — CEO Factor Legal",role:"admin"},
@@ -503,6 +501,11 @@ function Header({user,onLogout,view,setView}) {
             <NavBtn active={view==="dashboard"} onClick={()=>setView("dashboard")} icon={Home} label="Dashboard"/>
             <NavBtn active={view==="casos"} onClick={()=>setView("casos")} icon={Database} label="Casos"/>
             <NavBtn active={view==="nuevo"} onClick={()=>setView("nuevo")} icon={Plus} label="Nuevo caso"/>
+            {(user.role==="admin"||user.role==="analista")&&(
+              <button onClick={()=>setView("nerak")} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,letterSpacing:"0.08em",background:view==="nerak"?C.purple:"transparent",color:view==="nerak"?"white":C.purple}}>
+                <Sparkles size={13}/>Nerak Legal
+              </button>
+            )}
           </nav>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
@@ -1068,43 +1071,69 @@ function dl(content,name,mime) {
 }
 
 export default function App() {
-  const [user,setUser]=useState(null);
+  const [user,setUser]=useState(()=>lsGet("fl:user",null));
   const [casos,setCasos]=useState([]);
   const [loading,setLoading]=useState(true);
   const [view,setView]=useState("dashboard");
   const [selId,setSelId]=useState(null);
   const [editing,setEditing]=useState(null);
 
+  // Wire up Firestore real-time subscription
   useEffect(()=>{
-    (async()=>{
-      const c=await sGet("fl:casos",[],true);
-      setCasos(c||[]);
-      const u=await sGet("fl:user",null,false);
-      if(u)setUser(u);
-      setLoading(false);
-    })();
+    const unsub=onSnapshot(
+      collection(db,"casos"),
+      (snap)=>{
+        setCasos(snap.docs.map(d=>({id:d.id,...d.data()})));
+        setLoading(false);
+      },
+      (err)=>{
+        console.error("Firestore error:",err);
+        setLoading(false);
+      }
+    );
+    return ()=>unsub();
   },[]);
 
-  async function login(u){setUser(u);await sSet("fl:user",u,false);}
-  async function logout(){setUser(null);await sSet("fl:user",null,false);setView("dashboard");}
-  async function saveCaso(caso){
-    const exists=casos.find(c=>c.id===caso.id);
-    let next;
-    if(exists){next=casos.map(c=>c.id===caso.id?caso:c);}else{next=[...casos,{...caso,id:"c-"+Date.now()}];}
-    setCasos(next);await sSet("fl:casos",next,true);
-    const savedId=caso.id||next[next.length-1].id;
-    setSelId(savedId);setEditing(null);setView("ficha");
+  function login(u){setUser(u);lsSet("fl:user",u);}
+  function logout(){setUser(null);lsDel("fl:user");setView("dashboard");}
+
+  async function saveCaso(caso) {
+    try {
+      const {id,...data}=caso;
+      const payload={...data,fechaActualizacion:new Date().toISOString()};
+      if(id){
+        // Update existing
+        await updateDoc(doc(db,"casos",id),payload);
+        setSelId(id);
+      } else {
+        // Create new
+        payload.fechaCreacion=new Date().toISOString();
+        const ref=await addDoc(collection(db,"casos"),payload);
+        setSelId(ref.id);
+      }
+      setEditing(null);
+      setView("ficha");
+    } catch(err){
+      console.error("Error guardando caso:",err);
+      alert("Error al guardar. Verifica tu conexi\u00F3n.");
+    }
   }
-  async function delCaso(id){const next=casos.filter(c=>c.id!==id);setCasos(next);await sSet("fl:casos",next,true);}
+
+  async function delCaso(id){
+    try { await deleteDoc(doc(db,"casos",id)); }
+    catch(err){ console.error("Error eliminando:",err); alert("Error al eliminar."); }
+  }
+
   function exportCaso(fmt){
     const c=casos.find(x=>x.id===selId);if(!c)return;
     if(fmt==="word")dl(buildHTML(c),`FichaTecnica_${c.codigo}.doc`,"application/msword");
     if(fmt==="excel")dl("\uFEFF"+buildCSV(c),`FichaTecnica_${c.codigo}.csv`,"text/csv;charset=utf-8");
   }
+
   const selCaso=casos.find(c=>c.id===selId);
   function nav(v){setView(v);setEditing(null);}
 
-  if(loading){return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.cream}}><div style={{textAlign:"center"}}><div style={{width:48,height:48,borderRadius:"50%",background:C.navy,color:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",fontWeight:"bold",fontSize:18,border:`2px solid ${C.gold}`,margin:"0 auto 16px"}}>FL</div><div style={{fontSize:12,fontStyle:"italic",color:C.greyMid}}>Conectando con Firebase...</div></div></div>);}
+  if(loading){return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.cream}}><div style={{textAlign:"center"}}><div style={{width:48,height:48,borderRadius:"50%",background:C.navy,color:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",fontWeight:"bold",fontSize:18,border:`2px solid ${C.gold}`,margin:"0 auto 16px"}}>FL</div><div style={{fontSize:12,fontStyle:"italic",color:C.greyMid}}>Conectando con Firestore\u2026</div></div></div>);}
   if(!user)return <Login onLogin={login}/>;
 
   return (
@@ -1114,6 +1143,387 @@ export default function App() {
       {view==="casos"&&<CasosList casos={casos} onOpen={id=>{setSelId(id);setView("ficha");}} onDelete={delCaso} setView={nav} currentUser={user}/>}
       {view==="nuevo"&&<CasoForm initial={editing} onSave={saveCaso} onCancel={()=>{setEditing(null);setView("casos");}} currentUser={user}/>}
       {view==="ficha"&&selCaso&&<Ficha caso={selCaso} onBack={()=>setView("casos")} onEdit={()=>{setEditing(selCaso);setView("nuevo");}} onExport={exportCaso}/>}
+      {view==="nerak"&&(user.role==="admin"||user.role==="analista")&&<NerakLegal casos={casos} user={user} onOpenCaso={id=>{setSelId(id);setView("ficha");}}/>}
+      {view==="nerak"&&user.role==="comercial"&&(
+        <div style={{maxWidth:600,margin:"80px auto",textAlign:"center",padding:32}}>
+          <ShieldX size={48} style={{color:C.red,margin:"0 auto 16px"}}/>
+          <h2 style={{color:C.navy,fontFamily:"Georgia,serif"}}>Acceso restringido</h2>
+          <p style={{color:C.greyMid,fontSize:13}}>El m\u00F3dulo Nerak Legal est\u00E1 disponible solo para administradores y analistas jur\u00EDdicos.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// \u2500\u2500\u2500 NERAK LEGAL MODULE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+function NerakLegal({casos,user,onOpenCaso}) {
+  const [tab,setTab]=useState("dd");
+  const [alertasCaso,setAlertasCaso]=useState(null);
+  const [loadingIA,setLoadingIA]=useState(false);
+  const [plantilla,setPlantilla]=useState("sentencia");
+
+  const casosConAlertas=useMemo(()=>casos.map(c=>{
+    const ev=c.eval||evaluarCaso(c);
+    return {...c,_ev:ev};
+  }),[casos]);
+
+  const rechazados=casosConAlertas.filter(c=>c._ev.veredicto==="no_apto");
+  const conAlertas=casosConAlertas.filter(c=>c._ev.veredicto==="apto_con_alertas");
+  const aptos=casosConAlertas.filter(c=>c._ev.veredicto==="apto");
+
+  async function generarAlertasIA(caso) {
+    setLoadingIA(true);
+    setAlertasCaso(null);
+    try {
+      const kpis=calcKPIs(caso);
+      const ev=caso._ev||evaluarCaso(caso);
+      const prompt=`Eres un experto en due diligence de factoring de sentencias judiciales en Colombia.
+Analiza este caso y genera un reporte ejecutivo de riesgos y alertas:
+
+CASO: ${caso.codigo}
+Demandante: ${caso.demandanteNombre}
+Entidad: ${ENTIDADES.find(e=>e.id===caso.entidad)?.nombre||caso.entidad}
+Escenario: ${caso.escenario}
+Proceso: ${caso.tipoProceso}
+Capital: COP ${kpis.capital} M
+Intereses: COP ${kpis.intereses} M
+Nominal: COP ${kpis.nominal.toFixed(1)} M
+Desembolso: COP ${kpis.desembolso.toFixed(1)} M
+Descuento: ${kpis.descuento.toFixed(1)}%
+MOIC: ${kpis.moic.toFixed(2)}x
+Meses desde ejecutoria: ${kpis.mesesEjec||"N/A"}
+Veredicto motor: ${ev.veredicto}
+Alertas del motor: ${ev.alertas.map(a=>a.titulo).join(", ")||"ninguna"}
+
+Genera:
+1. RESUMEN EJECUTIVO (2-3 oraciones)
+2. RIESGOS CR\u00CDTICOS (lista)
+3. RIESGOS MODERADOS (lista)
+4. RECOMENDACIONES (lista de 3-5 acciones concretas)
+5. CONCLUSI\u00D3N INVERSI\u00D3N (apto/condicionado/rechazar con justificaci\u00F3n breve)
+
+Responde en espa\u00F1ol, formato estructurado, m\u00E1ximo 400 palabras.`;
+
+      const res=await fetch(WORKER_URL,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({mode:"analyze",prompt})
+      });
+      if(res.ok){
+        const data=await res.json();
+        setAlertasCaso({
+          casoId:caso.id,
+          codigo:caso.codigo,
+          texto:data.analysis||data.result?.resumenHechos||"An\u00E1lisis generado. Revisa los riesgos identificados por el motor de elegibilidad.",
+          timestamp:new Date().toLocaleString("es-CO")
+        });
+      } else {
+        // Fallback: generate locally from motor alerts
+        const ev2=evaluarCaso(caso);
+        setAlertasCaso({
+          casoId:caso.id,
+          codigo:caso.codigo,
+          texto:`AN\u00C1LISIS LOCAL \u2014 ${caso.codigo}\n\nVeredicto: ${ev2.veredicto.toUpperCase()}\n\n${ev2.alertas.map(a=>`\u2022 [${a.tipo.toUpperCase()}] ${a.titulo}: ${a.detalle}`).join("\n\n")||"Sin alertas identificadas por el motor de elegibilidad."}`,
+          timestamp:new Date().toLocaleString("es-CO")
+        });
+      }
+    } catch(e) {
+      const ev2=evaluarCaso(caso);
+      setAlertasCaso({
+        casoId:caso.id,
+        codigo:caso.codigo,
+        texto:`AN\u00C1LISIS DE RIESGOS \u2014 ${caso.codigo}\n\nVeredicto motor: ${ev2.veredicto.toUpperCase()}\n\n${ev2.alertas.map(a=>`[${a.tipo.toUpperCase()}] ${a.titulo}\n${a.detalle}`).join("\n\n")||"Sin alertas. Caso en buen estado."}`,
+        timestamp:new Date().toLocaleString("es-CO")
+      });
+    } finally {
+      setLoadingIA(false);
+    }
+  }
+
+  const PLANTILLAS={
+    sentencia:{
+      titulo:"CONTRATO DE CESI\u00D3N DE DERECHOS LITIGIOSOS",
+      subtitulo:"(Sentencia Judicial \u2014 Factor Legal S.A.S.)",
+      cuerpo:`Entre los suscritos, a saber: [NOMBRE CEDENTE], identificado(a) con C.C. No. [CC], actuando en calidad de beneficiario(a)/apoderado(a) del fallo judicial No. [RADICADO], proferido por [JUZGADO/TRIBUNAL] el [FECHA FALLO], debidamente ejecutoriado el [FECHA EJECUTORIA], en adelante EL CEDENTE; y FACTOR LEGAL S.A.S., sociedad identificada con NIT. [NIT], en adelante EL CESIONARIO; se celebra el presente contrato de cesi\u00F3n de derechos litigiosos, sujeto a las siguientes cl\u00E1usulas:
+
+PRIMERA \u2014 OBJETO: El CEDENTE cede y transfiere al CESIONARIO la totalidad de los derechos econ\u00F3micos que le corresponden en la sentencia identificada, por un valor nominal de COP [VALOR NOMINAL], comprensivo de capital (COP [CAPITAL]) e intereses moratorios (COP [INTERESES]).
+
+SEGUNDA \u2014 PRECIO: El CESIONARIO reconoce al CEDENTE la suma de COP [PRECIO COMPRA] como precio de la presente cesi\u00F3n, suma que se cancelar\u00E1 conforme a las condiciones pactadas en el acuerdo comercial adjunto.
+
+TERCERA \u2014 GARANT\u00CDAS: El CEDENTE declara que los derechos cedidos se encuentran libres de grav\u00E1menes, hipotecas, embargos o cualquier medida cautelar. Declara igualmente que no existen cesiones previas sobre los mismos derechos.
+
+CUARTA \u2014 DOCUMENTACI\u00D3N: El CEDENTE se obliga a entregar al CESIONARIO la totalidad de la documentaci\u00F3n del proceso, incluyendo pero sin limitarse a: sentencias de instancia, constancias de ejecutoria, poderes vigentes, y cuentas de cobro radicadas.
+
+QUINTA \u2014 LEY APLICABLE: El presente contrato se rige por las normas del C\u00F3digo Civil colombiano sobre cesi\u00F3n de cr\u00E9ditos y derechos litigiosos (Arts. 1959 y ss. C.C.), y las disposiciones del CPACA sobre cobro coactivo.
+
+Para constancia, se firma en [CIUDAD], a los [D\u00CDA] d\u00EDas del mes de [MES] de [A\u00D1O].
+
+_______________________________          _______________________________
+EL CEDENTE                                EL CESIONARIO
+[NOMBRE]                                  FACTOR LEGAL S.A.S.
+C.C. No. [CC]                            NIT. [NIT]`
+    },
+    conciliacion:{
+      titulo:"CONTRATO DE CESI\u00D3N DE DERECHOS CONCILIADOS",
+      subtitulo:"(Acuerdo de Conciliaci\u00F3n \u2014 Factor Legal S.A.S.)",
+      cuerpo:`Entre los suscritos, a saber: [NOMBRE CEDENTE], identificado(a) con C.C. No. [CC], beneficiario(a) del acuerdo de conciliaci\u00F3n aprobado mediante auto del [FECHA AUTO] por [JUZGADO/TRIBUNAL/PROCURADUR\u00CDA], con constancia de ejecutoria del [FECHA EJECUTORIA], en adelante EL CEDENTE; y FACTOR LEGAL S.A.S., identificada con NIT. [NIT], en adelante EL CESIONARIO; se celebra el presente contrato de cesi\u00F3n:
+
+PRIMERA \u2014 OBJETO: Cesi\u00F3n de la totalidad de los derechos econ\u00F3micos derivados del acuerdo de conciliaci\u00F3n suscrito entre el CEDENTE y [ENTIDAD DEMANDADA], por valor de COP [VALOR CONCILIADO].
+
+SEGUNDA \u2014 PRECIO Y FORMA DE PAGO: El CESIONARIO pagar\u00E1 al CEDENTE la suma de COP [PRECIO COMPRA], en la forma y plazos acordados en el compromiso comercial suscrito entre las partes.
+
+TERCERA \u2014 ACTA DE CONCILIACI\u00D3N: El CEDENTE declara que el acuerdo fue debidamente aprobado por el despacho competente, se encuentra ejecutoriado, y ha sido radicada la respectiva cuenta de cobro ante [ENTIDAD].
+
+CUARTA \u2014 OBLIGACIONES DEL CEDENTE: (i) Entregar originales o copias autenticadas de toda la documentaci\u00F3n del proceso; (ii) suscribir poderes especiales para gesti\u00F3n de cobro; (iii) concurrir personalmente cuando la entidad pagadora lo requiera; (iv) abstenerse de suscribir nuevas cesiones, transacciones o grav\u00E1menes sobre los mismos derechos.
+
+QUINTA \u2014 OBLIGACIONES DEL CESIONARIO: Gestionar el cobro del cr\u00E9dito cedido ante [ENTIDAD DEMANDADA] con la diligencia debida, informando al CEDENTE sobre el avance del proceso de pago.
+
+SEXTA \u2014 R\u00C9GIMEN JUR\u00CDDICO: El presente contrato se rige por los Arts. 1959 y siguientes del C\u00F3digo Civil, Ley 446 de 1998, Ley 640 de 2001 y normas concordantes.
+
+Firmado en [CIUDAD], el [FECHA].
+
+_______________________________          _______________________________
+EL CEDENTE                                EL CESIONARIO
+[NOMBRE]                                  FACTOR LEGAL S.A.S.
+C.C. No. [CC]                            NIT. [NIT]`
+    }
+  };
+
+  const TabBtn=({id,label,Ic})=>(
+    <button onClick={()=>setTab(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,letterSpacing:"0.08em",background:tab===id?C.purple:"white",color:tab===id?"white":C.purple,border:tab===id?"none":`1px solid ${C.purple}`}}>
+      <Ic size={13}/>{label}
+    </button>
+  );
+
+  return (
+    <div style={{maxWidth:1200,margin:"0 auto",padding:"32px 24px"}}>
+      {/* Header */}
+      <div style={{marginBottom:32,display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+            <div style={{background:C.purpleSoft,borderRadius:8,padding:"4px 10px",display:"flex",alignItems:"center",gap:6}}>
+              <Sparkles size={13} style={{color:C.purple}}/>
+              <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.12em",color:C.purple}}>M\u00D3DULO RESTRINGIDO</span>
+            </div>
+            <div style={{fontSize:10,color:C.greyMid}}>Acceso: {user.role}</div>
+          </div>
+          <h1 style={{color:C.navy,fontSize:28,fontFamily:"Georgia,serif",margin:0}}>Nerak Legal</h1>
+          <div style={{fontSize:13,fontStyle:"italic",color:C.greyMid,marginTop:4}}>Due Diligence Avanzado \u00B7 Alertas IA \u00B7 Plantillas de Contratos</div>
+          <div style={{height:3,width:64,background:C.purple,marginTop:10}}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,textAlign:"center"}}>
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${C.green}`,borderRadius:8,padding:16}}>
+            <div style={{fontSize:24,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{aptos.length}</div>
+            <div style={{fontSize:10,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>APTOS</div>
+          </div>
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${C.amber}`,borderRadius:8,padding:16}}>
+            <div style={{fontSize:24,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{conAlertas.length}</div>
+            <div style={{fontSize:10,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>CON ALERTAS</div>
+          </div>
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${C.red}`,borderRadius:8,padding:16}}>
+            <div style={{fontSize:24,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{rechazados.length}</div>
+            <div style={{fontSize:10,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>NO APTOS</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:8,marginBottom:24}}>
+        <TabBtn id="dd" label="DD Avanzado" Ic={BarChart3}/>
+        <TabBtn id="alertas" label="Alertas IA" Ic={Sparkles}/>
+        <TabBtn id="plantillas" label="Plantillas de Contratos" Ic={FileText}/>
+      </div>
+
+      {/* TAB: DD AVANZADO */}
+      {tab==="dd"&&(
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+            {/* Casos con alertas */}
+            <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+              <div style={{background:C.amber,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
+                <ShieldAlert size={13} style={{color:"white"}}/>
+                <span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>REQUIEREN GESTI\u00D3N ({conAlertas.length})</span>
+              </div>
+              {conAlertas.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos pendientes</div>):
+              conAlertas.map(c=>{
+                const kpis=calcKPIs(c);
+                return (<button key={c.id} onClick={()=>onOpenCaso(c.id)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"none",border:"none",borderBottom:`1px solid ${C.greySoft}`,cursor:"pointer",textAlign:"left"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"\u2014"}</div>
+                    <div style={{fontSize:11,color:C.amber,fontWeight:"bold",marginTop:2}}>{c._ev.alertas.filter(a=>a.tipo==="alerta").length} alerta(s) \u00B7 {c._ev.alertas.filter(a=>a.tipo==="pendiente").length} pendiente(s)</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:11,fontFamily:"monospace",color:C.navy}}>COP {kpis.nominal.toFixed(0)} M</div>
+                    <div style={{fontSize:10,color:C.greyMid}}>{kpis.descuento.toFixed(1)}% dto</div>
+                  </div>
+                  <ChevronRight size={13} style={{color:C.greyMid}}/>
+                </button>);
+              })}
+            </div>
+            {/* Casos rechazados */}
+            <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+              <div style={{background:C.red,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
+                <ShieldX size={13} style={{color:"white"}}/>
+                <span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>NO APTOS \u2014 CAUSALES DE RECHAZO ({rechazados.length})</span>
+              </div>
+              {rechazados.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos rechazados</div>):
+              rechazados.map(c=>(
+                <button key={c.id} onClick={()=>onOpenCaso(c.id)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"none",border:"none",borderBottom:`1px solid ${C.greySoft}`,cursor:"pointer",textAlign:"left"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"\u2014"}</div>
+                    <div style={{fontSize:11,color:C.red,marginTop:2}}>{c._ev.alertas.filter(a=>a.tipo==="rechazo").map(a=>a.titulo).join(" \u00B7 ")}</div>
+                  </div>
+                  <ChevronRight size={13} style={{color:C.greyMid}}/>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Exposure table */}
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+            <div style={{background:C.navy,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
+              <BarChart3 size={13} style={{color:C.gold}}/>
+              <span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>EXPOSICI\u00D3N AGREGADA POR ENTIDAD</span>
+            </div>
+            <div style={{padding:16}}>
+              {(() => {
+                const byEnt={};
+                casosConAlertas.forEach(c=>{
+                  const eName=ENTIDADES.find(e=>e.id===c.entidad)?.nombre||c.entidad||"Sin entidad";
+                  if(!byEnt[eName])byEnt[eName]={count:0,nominal:0,desembolso:0,aptos:0,alertas:0,rechazados:0};
+                  const k=calcKPIs(c);
+                  byEnt[eName].count++;
+                  byEnt[eName].nominal+=k.nominal;
+                  byEnt[eName].desembolso+=k.desembolso;
+                  if(c._ev.veredicto==="apto")byEnt[eName].aptos++;
+                  else if(c._ev.veredicto==="apto_con_alertas")byEnt[eName].alertas++;
+                  else byEnt[eName].rechazados++;
+                });
+                const arr=Object.entries(byEnt).sort((a,b)=>b[1].nominal-a[1].nominal);
+                if(arr.length===0)return <div style={{textAlign:"center",padding:32,fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin datos</div>;
+                return (<>
+                  <div style={{display:"grid",gridTemplateColumns:"2fr 80px 100px 100px 80px",gap:8,padding:"6px 8px",background:C.navy,borderRadius:4,marginBottom:8}}>
+                    {["ENTIDAD","CASOS","NOMINAL (M)","DESEMBOLSO (M)","ESTADO"].map((h,i)=>(
+                      <div key={i} style={{fontSize:9,fontWeight:"bold",color:C.gold,letterSpacing:"0.1em",textAlign:i>0?"center":"left"}}>{h}</div>
+                    ))}
+                  </div>
+                  {arr.map(([ent,d])=>(
+                    <div key={ent} style={{display:"grid",gridTemplateColumns:"2fr 80px 100px 100px 80px",gap:8,padding:"8px",borderBottom:`1px solid ${C.greySoft}`,alignItems:"center"}}>
+                      <div style={{fontSize:12,color:C.navy,fontWeight:"bold"}}>{ent}</div>
+                      <div style={{fontSize:12,fontFamily:"monospace",textAlign:"center"}}>{d.count}</div>
+                      <div style={{fontSize:12,fontFamily:"monospace",textAlign:"center",color:C.navy}}>{d.nominal.toFixed(0)}</div>
+                      <div style={{fontSize:12,fontFamily:"monospace",textAlign:"center"}}>{d.desembolso.toFixed(0)}</div>
+                      <div style={{textAlign:"center",fontSize:10,fontWeight:"bold"}}>
+                        <span style={{color:C.green}}>{d.aptos}\u2713</span> <span style={{color:C.amber}}>{d.alertas}\u26A0</span> <span style={{color:C.red}}>{d.rechazados}\u2717</span>
+                      </div>
+                    </div>
+                  ))}
+                </>);
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: ALERTAS IA */}
+      {tab==="alertas"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:12}}>SELECCIONAR CASO PARA AN\u00C1LISIS IA</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:480,overflowY:"auto"}}>
+              {casosConAlertas.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos registrados</div>):
+              casosConAlertas.map(c=>(
+                <button key={c.id} onClick={()=>generarAlertasIA(c)} disabled={loadingIA}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"white",border:`1px solid ${alertasCaso?.casoId===c.id?C.purple:C.greySoft}`,borderRadius:6,cursor:"pointer",textAlign:"left",opacity:loadingIA?0.6:1}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"\u2014"} \u00B7 {ENTIDADES.find(e=>e.id===c.entidad)?.nombre||"\u2014"}</div>
+                  </div>
+                  <Badge verdict={c._ev.veredicto}/>
+                  <Sparkles size={13} style={{color:C.purple}}/>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:12}}>AN\u00C1LISIS GENERADO</div>
+            {loadingIA&&(
+              <div style={{background:C.purpleSoft,border:`1px solid ${C.purple}`,borderRadius:8,padding:32,textAlign:"center"}}>
+                <div style={{width:32,height:32,border:`3px solid ${C.purple}`,borderTop:"3px solid transparent",borderRadius:"50%",animation:"spin 1s linear infinite",margin:"0 auto 12px"}}/>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                <div style={{fontSize:13,color:C.purple,fontWeight:"bold"}}>Analizando con IA\u2026</div>
+                <div style={{fontSize:11,color:C.purple,fontStyle:"italic",marginTop:4}}>Evaluando riesgos jur\u00EDdicos y financieros</div>
+              </div>
+            )}
+            {!loadingIA&&alertasCaso&&(
+              <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+                <div style={{background:C.purple,padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}><Sparkles size={13} style={{color:"white"}}/><span style={{fontSize:11,fontWeight:"bold",color:"white",letterSpacing:"0.1em"}}>AN\u00C1LISIS IA \u2014 {alertasCaso.codigo}</span></div>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>{alertasCaso.timestamp}</div>
+                </div>
+                <div style={{padding:20,whiteSpace:"pre-wrap",fontSize:12,color:C.charcoal,lineHeight:1.7,maxHeight:400,overflowY:"auto"}}>{alertasCaso.texto}</div>
+                <div style={{padding:"10px 16px",borderTop:`1px solid ${C.greySoft}`,display:"flex",gap:8}}>
+                  <button onClick={()=>{const blob=new Blob([alertasCaso.texto],{type:"text/plain;charset=utf-8"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=`AlertasIA_${alertasCaso.codigo}.txt`;a.click();URL.revokeObjectURL(u);}}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:4,border:"none",background:C.purple,color:"white",fontSize:11,fontWeight:"bold",cursor:"pointer"}}>
+                    <Download size={11}/>Exportar
+                  </button>
+                </div>
+              </div>
+            )}
+            {!loadingIA&&!alertasCaso&&(
+              <div style={{background:C.purpleSoft,border:`1px solid ${C.purple}`,borderRadius:8,padding:48,textAlign:"center"}}>
+                <Sparkles size={32} style={{color:C.purple,margin:"0 auto 12px"}}/>
+                <div style={{fontSize:13,color:C.purple,fontWeight:"bold",marginBottom:4}}>Selecciona un caso</div>
+                <div style={{fontSize:11,color:C.purple,fontStyle:"italic"}}>El motor de IA analizar\u00E1 riesgos jur\u00EDdicos y financieros</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: PLANTILLAS */}
+      {tab==="plantillas"&&(
+        <div>
+          <div style={{display:"flex",gap:8,marginBottom:24}}>
+            {[{id:"sentencia",label:"Cesi\u00F3n de Sentencia",Ic:Gavel},{id:"conciliacion",label:"Cesi\u00F3n de Conciliaci\u00F3n",Ic:Scale}].map(({id,label,Ic})=>(
+              <button key={id} onClick={()=>setPlantilla(id)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,background:plantilla===id?C.navy:"white",color:plantilla===id?C.gold:C.navy,border:plantilla===id?"none":`1px solid ${C.greySoft}`}}>
+                <Ic size={13}/>{label}
+              </button>
+            ))}
+          </div>
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+            <div style={{background:C.navy,padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:"bold",color:C.gold,letterSpacing:"0.12em",marginBottom:2}}>PLANTILLA DE CONTRATO</div>
+                <div style={{fontSize:13,fontWeight:"bold",color:"white"}}>{PLANTILLAS[plantilla].titulo}</div>
+                <div style={{fontSize:11,fontStyle:"italic",color:"rgba(255,255,255,0.7)"}}>{PLANTILLAS[plantilla].subtitulo}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{
+                  const content=`${PLANTILLAS[plantilla].titulo}\n${PLANTILLAS[plantilla].subtitulo}\n\n${PLANTILLAS[plantilla].cuerpo}`;
+                  dl(content,`Plantilla_${plantilla}_FactorLegal.txt`,"text/plain;charset=utf-8");
+                }} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:6,border:`1px solid ${C.gold}`,background:"transparent",color:C.gold,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>
+                  <Download size={12}/>TXT
+                </button>
+                <button onClick={()=>{
+                  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${PLANTILLAS[plantilla].titulo}</title><style>body{font-family:Georgia,serif;max-width:800px;margin:40px auto;padding:0 40px;color:#333;line-height:1.8}h1{color:#0B2545;font-size:18px;text-align:center;border-bottom:2px solid #B08D57;padding-bottom:10px}h2{color:#0B2545;font-size:12px;text-align:center;font-style:italic;margin-top:0}pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:13px;line-height:1.8}.ft{margin-top:40px;text-align:center;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px}</style></head><body><h1>${PLANTILLAS[plantilla].titulo}</h1><h2>${PLANTILLAS[plantilla].subtitulo}</h2><pre>${PLANTILLAS[plantilla].cuerpo}</pre><div class="ft">Plantilla de uso interno \u2014 Factor Legal S.A.S. \u2014 Confidencial</div></body></html>`;
+                  dl(html,`Plantilla_${plantilla}_FactorLegal.doc`,"application/msword");
+                }} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:6,border:"none",background:C.gold,color:C.navy,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>
+                  <Download size={12}/>WORD
+                </button>
+              </div>
+            </div>
+            <div style={{padding:32}}>
+              <div style={{background:C.amberSoft,border:`1px solid ${C.gold}`,borderRadius:6,padding:"10px 16px",marginBottom:20,fontSize:11,color:C.charcoal,display:"flex",alignItems:"center",gap:8}}>
+                <AlertCircle size={13} style={{color:C.amber,flexShrink:0}}/>
+                <span>Plantilla de referencia. Los campos entre [CORCHETES] deben ser completados para cada operaci\u00F3n. Siempre revisar con el equipo jur\u00EDdico antes de suscribir.</span>
+              </div>
+              <pre style={{whiteSpace:"pre-wrap",fontFamily:"Georgia,serif",fontSize:13,color:C.charcoal,lineHeight:1.9,margin:0}}>{PLANTILLAS[plantilla].cuerpo}</pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
