@@ -274,6 +274,10 @@ function PdfExtractor({ onExtracted, onSkip }) {
     return null;
   }
 
+  const MAX_FILE_SIZE_MB = 10;
+  const MAX_TOTAL_SIZE_MB = 30;
+  const MAX_FILE_COUNT = 20;
+
   function addFiles(fileList) {
     const all = Array.from(fileList);
     const valid = all.filter(f => getFileType(f) !== null);
@@ -282,13 +286,36 @@ function PdfExtractor({ onExtracted, onSkip }) {
       setError("No se encontraron documentos válidos. Se aceptan PDF, Word (.docx) e imágenes (JPG, PNG).");
       return;
     }
+
+    // Per-file size check
+    const oversize = valid.filter(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+    if (oversize.length > 0) {
+      setError(`${oversize.length} archivo(s) superan el límite de ${MAX_FILE_SIZE_MB} MB por archivo: ${oversize.map(f=>f.name).join(", ")}. Por favor divide en partes más pequeñas.`);
+      return;
+    }
+
     setFiles(prev => {
       const names = new Set(prev.map(f => f.webkitRelativePath || f.name));
       const newFiles = valid.filter(f => !names.has(f.webkitRelativePath || f.name));
-      return [...prev, ...newFiles];
+      const combined = [...prev, ...newFiles];
+
+      // File count check
+      if (combined.length > MAX_FILE_COUNT) {
+        setError(`Límite de ${MAX_FILE_COUNT} documentos por análisis. Actualmente seleccionados: ${combined.length}. Elimina algunos e intenta de nuevo.`);
+        return prev;
+      }
+
+      // Total size check
+      const totalMB = combined.reduce((s, f) => s + f.size, 0) / 1024 / 1024;
+      if (totalMB > MAX_TOTAL_SIZE_MB) {
+        setError(`El peso total (${totalMB.toFixed(1)} MB) supera el límite de ${MAX_TOTAL_SIZE_MB} MB. Selecciona menos documentos o usa archivos más ligeros.`);
+        return prev;
+      }
+
+      if (skipped > 0) setError(`Se omitieron ${skipped} archivo(s) no compatibles. Se cargaron ${newFiles.length} documentos válidos.`);
+      else setError("");
+      return combined;
     });
-    if (skipped > 0) setError(`Se omitieron ${skipped} archivo(s) no compatibles. Se cargaron ${valid.length} documentos válidos.`);
-    else setError("");
   }
 
   function removeFile(idx) {
@@ -307,6 +334,9 @@ function PdfExtractor({ onExtracted, onSkip }) {
   async function compressIfNeeded(file) {
     const MAX_SIZE = 3 * 1024 * 1024; // 3MB
     if (file.size <= MAX_SIZE) return file;
+    // Only attempt PDF compression — Word/images pass through unchanged
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) return file;
     try {
       const arrayBuffer = await file.arrayBuffer();
       const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
@@ -526,7 +556,7 @@ function PdfExtractor({ onExtracted, onSkip }) {
         </button>
       </div>
       <div style={{marginTop:12,fontSize:11,color:C.greyMid,textAlign:"center",fontStyle:"italic"}}>
-        Los archivos grandes se comprimen automáticamente antes de enviar
+        Máx. {MAX_FILE_COUNT} archivos · {MAX_FILE_SIZE_MB} MB por archivo · {MAX_TOTAL_SIZE_MB} MB total — los PDFs grandes se comprimen automáticamente
       </div>
     </div>
   );
@@ -1241,7 +1271,7 @@ export default function App() {
   const selCaso=casos.find(c=>c.id===selId);
   function nav(v){setView(v);setEditing(null);}
 
-  if(loading){return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.cream}}><div style={{textAlign:"center"}}><div style={{width:48,height:48,borderRadius:"50%",background:C.navy,color:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",fontWeight:"bold",fontSize:18,border:`2px solid ${C.gold}`,margin:"0 auto 16px"}}>FL</div><div style={{fontSize:12,fontStyle:"italic",color:C.greyMid}}>Conectando con Firestore\u2026</div></div></div>);}
+  if(loading){return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.cream}}><div style={{textAlign:"center"}}><div style={{margin:"0 auto 16px",display:"flex",justifyContent:"center"}}><Logo size="lg" showText={true}/></div><div style={{fontSize:12,fontStyle:"italic",color:C.greyMid}}>Conectando con Firestore\u2026</div></div></div>);}
   if(!user)return <Login onLogin={login}/>;
 
   return (
