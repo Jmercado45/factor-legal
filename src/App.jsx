@@ -1428,7 +1428,7 @@ C.C. No. [CC]                            NIT. [NIT]`
   };
 
   const TabBtn=({id,label,Ic})=>(
-    <button onClick={()=>setTab(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,letterSpacing:"0.08em",background:tab===id?C.purple:"white",color:tab===id?"white":C.purple,border:tab===id?"none":`1px solid ${C.purple}`}}>
+    <button onClick={()=>setTab(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:12,letterSpacing:"0.08em",background:tab===id?C.purple:"white",color:tab===id?"white":C.purple,border:tab===id?"none":`1px solid ${C.purple}`}}>
       <Ic size={13}/>{label}
     </button>
   );
@@ -1625,7 +1625,7 @@ C.C. No. [CC]                            NIT. [NIT]`
         <div>
           <div style={{display:"flex",gap:8,marginBottom:24}}>
             {[{id:"sentencia",label:"Cesi\u00F3n de Sentencia",Ic:Gavel},{id:"conciliacion",label:"Cesi\u00F3n de Conciliaci\u00F3n",Ic:Scale}].map(({id,label,Ic})=>(
-              <button key={id} onClick={()=>setPlantilla(id)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,background:plantilla===id?C.navy:"white",color:plantilla===id?C.gold:C.navy,border:plantilla===id?"none":`1px solid ${C.greySoft}`}}>
+              <button key={id} onClick={()=>setPlantilla(id)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:12,background:plantilla===id?C.navy:"white",color:plantilla===id?C.gold:C.navy,border:plantilla===id?"none":`1px solid ${C.greySoft}`}}>
                 <Ic size={13}/>{label}
               </button>
             ))}
