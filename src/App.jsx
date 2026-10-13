@@ -191,10 +191,41 @@ const SEED_USERS = [
   {id:"u-com",username:"comercial",password:"fl2026",nombre:"Originación Comercial",role:"comercial"},
 ];
 
-function Logo({size="md"}) {
-  const h={sm:32,md:48,lg:72}[size];
+function Logo({size="md",showText=false}) {
+  const dims={sm:32,md:44,lg:72};
+  const s=dims[size]||44;
+  // viewBox 200×144 → hex teal + nested squares/diamonds blue + center dot
   return (
-    <img src="/logo_factor_legal.png" alt="Factor Legal" style={{height:h,objectFit:"contain",display:"block"}}/>
+    <div style={{display:"flex",alignItems:"center",gap:showText?10:0}}>
+      <svg width={s} height={Math.round(s*144/200)} viewBox="0 0 200 144" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Hexagon outline teal */}
+        <polygon points="100,10 150,37.5 150,106.5 100,134 50,106.5 50,37.5" stroke="#3EC9D6" strokeWidth="2.5" fill="none"/>
+        {/* 6 vertex dots teal */}
+        {[[100,10],[150,37.5],[150,106.5],[100,134],[50,106.5],[50,37.5]].map(([cx,cy],i)=>(
+          <circle key={i} cx={cx} cy={cy} r="4" fill="#3EC9D6"/>
+        ))}
+        {/* 8 lines hex-vertices → square corners */}
+        {[[[100,10],[68,40]],[[100,10],[132,40]],[[150,37.5],[132,40]],[[150,106.5],[132,104]],[[100,134],[132,104]],[[100,134],[68,104]],[[50,106.5],[68,104]],[[50,37.5],[68,40]]].map(([[x1,y1],[x2,y2]],i)=>(
+          <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3EC9D6" strokeWidth="1.4" opacity="0.7"/>
+        ))}
+        {/* Outer square blue */}
+        <rect x="68" y="40" width="64" height="64" stroke="#1A4EC8" strokeWidth="2.2" fill="none"/>
+        {/* Outer diamond blue */}
+        <polygon points="100,40 132,72 100,104 68,72" stroke="#1A4EC8" strokeWidth="2.2" fill="none"/>
+        {/* Inner square blue */}
+        <rect x="84" y="56" width="32" height="32" stroke="#1A4EC8" strokeWidth="2" fill="none"/>
+        {/* Inner diamond blue */}
+        <polygon points="100,56 116,72 100,88 84,72" stroke="#1A4EC8" strokeWidth="1.8" fill="none"/>
+        {/* Center dot teal */}
+        <circle cx="100" cy="72" r="3.5" fill="#3EC9D6"/>
+      </svg>
+      {showText&&(
+        <div style={{display:"flex",flexDirection:"column",lineHeight:1.1}}>
+          <span style={{fontFamily:"'Georgia',serif",fontWeight:"bold",fontSize:s*0.38,color:"#0D1F4E",letterSpacing:"0.08em"}}>FACTOR</span>
+          <span style={{fontFamily:"'Georgia',serif",fontWeight:"bold",fontSize:s*0.38,color:"#0D1F4E",letterSpacing:"0.08em"}}>LEGAL</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -444,7 +475,7 @@ function Login({onLogin}) {
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:32}}>
           <div style={{background:"white",borderRadius:12,padding:"16px 24px",display:"inline-block",boxShadow:"0 4px 20px rgba(0,0,0,0.2)",marginBottom:16}}>
-            <img src="/logo_factor_legal.png" alt="Factor Legal" style={{height:64,objectFit:"contain",display:"block"}}/>
+            <Logo size="lg" showText={true}/>
           </div>
           <div style={{fontStyle:"italic",color:C.goldLight,fontSize:11,letterSpacing:"0.18em"}}>DUE DILIGENCE PLATFORM</div>
         </div>
