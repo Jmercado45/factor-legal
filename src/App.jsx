@@ -6,7 +6,7 @@ import {
   LogOut, User, Lock, Eye, EyeOff, Trash2, Edit3, Save, ArrowLeft,
   Calendar, DollarSign, Scale, Gavel, Target, BarChart3, Activity,
   ShieldCheck, ShieldAlert, ShieldX, Shield, Home, Database,
-  ClipboardCheck, Coins, Info, Upload, X, FileUp, Sparkles
+  ClipboardCheck, Coins, Info, Upload, X, FileUp, FolderOpen, Sparkles
 } from "lucide-react";
 import { db } from "./firebase.js";
 import {
@@ -353,9 +353,21 @@ function PdfExtractor({ onExtracted, onSkip }) {
         style={{border:`2px dashed ${dragOver?C.purple:C.greySoft}`,borderRadius:10,padding:"32px 20px",textAlign:"center",cursor:"pointer",background:dragOver?C.purpleSoft:"white",transition:"all 0.2s",marginBottom:16}}
       >
         <FileUp size={28} style={{color:dragOver?C.purple:C.greyMid,margin:"0 auto 10px"}}/>
-        <div style={{fontSize:14,fontWeight:"500",color:dragOver?C.purple:C.navy,marginBottom:4}}>Arrastra los PDFs aquí</div>
-        <div style={{fontSize:12,color:C.greyMid}}>o haz clic para seleccionar — sin límite de documentos</div>
+        <div style={{fontSize:14,fontWeight:"500",color:dragOver?C.purple:C.navy,marginBottom:4}}>Arrastra PDFs o carpetas aquí</div>
+        <div style={{fontSize:12,color:C.greyMid,marginBottom:14}}>o usa los botones para seleccionar</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>document.getElementById("pdf-input").click()}
+            style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:`1.5px solid ${C.purple}`,background:"white",color:C.purple,fontSize:12,fontWeight:"bold",cursor:"pointer",letterSpacing:"0.06em"}}>
+            <FileUp size={13}/>Seleccionar PDFs
+          </button>
+          <button onClick={()=>document.getElementById("folder-input").click()}
+            style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:`1.5px solid ${C.navy}`,background:"white",color:C.navy,fontSize:12,fontWeight:"bold",cursor:"pointer",letterSpacing:"0.06em"}}>
+            <FolderOpen size={13}/>Seleccionar carpeta
+          </button>
+        </div>
         <input id="pdf-input" type="file" accept=".pdf,application/pdf" multiple style={{display:"none"}}
+          onChange={e=>addFiles(e.target.files)}/>
+        <input id="folder-input" type="file" webkitdirectory="" multiple style={{display:"none"}}
           onChange={e=>addFiles(e.target.files)}/>
       </div>
 
