@@ -192,15 +192,9 @@ const SEED_USERS = [
 ];
 
 function Logo({size="md"}) {
-  const s={sm:{c:28,f:11,g:8,n:13,sub:9},md:{c:38,f:15,g:10,n:16,sub:10},lg:{c:56,f:22,g:14,n:22,sub:12}}[size];
+  const h={sm:32,md:48,lg:72}[size];
   return (
-    <div style={{display:"flex",alignItems:"center",gap:s.g}}>
-      <div style={{width:s.c,height:s.c,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"bold",background:`linear-gradient(135deg,${C.navy},${C.navyDeep})`,color:C.gold,fontFamily:"Georgia,serif",fontSize:s.f,border:`1.5px solid ${C.gold}`}}>FL</div>
-      <div style={{lineHeight:1.1}}>
-        <div style={{fontWeight:"bold",letterSpacing:"0.06em",color:C.navy,fontSize:s.n,fontFamily:"Georgia,serif"}}>FACTOR LEGAL</div>
-        <div style={{fontStyle:"italic",color:C.greyMid,fontSize:s.sub,letterSpacing:"0.08em"}}>DUE DILIGENCE PLATFORM</div>
-      </div>
-    </div>
+    <img src="/logo_factor_legal.png" alt="Factor Legal" style={{height:h,objectFit:"contain",display:"block"}}/>
   );
 }
 
@@ -437,11 +431,10 @@ function Login({onLogin}) {
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:`linear-gradient(135deg,${C.navyDeep},${C.navy},${C.navyLight})`}}>
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:32}}>
-          <div style={{width:72,height:72,borderRadius:"50%",background:C.cream,border:`2px solid ${C.gold}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
-            <span style={{color:C.navy,fontSize:26,fontWeight:700,fontFamily:"Georgia,serif"}}>FL</span>
+          <div style={{background:"white",borderRadius:12,padding:"16px 24px",display:"inline-block",boxShadow:"0 4px 20px rgba(0,0,0,0.2)",marginBottom:16}}>
+            <img src="/logo_factor_legal.png" alt="Factor Legal" style={{height:64,objectFit:"contain",display:"block"}}/>
           </div>
-          <div style={{fontWeight:"bold",color:"white",fontSize:26,fontFamily:"Georgia,serif"}}>FACTOR LEGAL</div>
-          <div style={{fontStyle:"italic",color:C.goldLight,fontSize:11,letterSpacing:"0.18em",marginTop:4}}>DUE DILIGENCE PLATFORM</div>
+          <div style={{fontStyle:"italic",color:C.goldLight,fontSize:11,letterSpacing:"0.18em"}}>DUE DILIGENCE PLATFORM</div>
         </div>
         <div style={{background:"white",borderRadius:12,padding:32,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{fontWeight:"bold",color:C.navy,fontSize:18,fontFamily:"Georgia,serif",marginBottom:4}}>Acceso institucional</div>
