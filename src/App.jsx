@@ -258,14 +258,37 @@ function PdfExtractor({ onExtracted, onSkip }) {
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
 
+  const ACCEPTED_TYPES = {
+    pdf: { exts: [".pdf"], mime: ["application/pdf"], label: "PDF", color: "#dc2626" },
+    word: { exts: [".docx",".doc"], mime: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/msword"], label: "Word", color: "#2563eb" },
+    image: { exts: [".jpg",".jpeg",".png",".tiff",".tif"], mime: ["image/jpeg","image/png","image/tiff"], label: "Imagen", color: "#059669" },
+  };
+  const SKIP_FILES = ["thumbs.db",".ds_store","desktop.ini","icon\r",".__afpresource"];
+
+  function getFileType(f) {
+    const name = f.name.toLowerCase();
+    if (SKIP_FILES.some(s => name === s || name.startsWith("."))) return null;
+    for (const [type, cfg] of Object.entries(ACCEPTED_TYPES)) {
+      if (cfg.exts.some(e => name.endsWith(e)) || cfg.mime.includes(f.type)) return type;
+    }
+    return null;
+  }
+
   function addFiles(fileList) {
-    const pdfs = Array.from(fileList).filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"));
-    if (pdfs.length === 0) { setError("Solo se aceptan archivos PDF."); return; }
+    const all = Array.from(fileList);
+    const valid = all.filter(f => getFileType(f) !== null);
+    const skipped = all.length - valid.length;
+    if (valid.length === 0) {
+      setError("No se encontraron documentos válidos. Se aceptan PDF, Word (.docx) e imágenes (JPG, PNG).");
+      return;
+    }
     setFiles(prev => {
-      const names = new Set(prev.map(f => f.name));
-      return [...prev, ...pdfs.filter(f => !names.has(f.name))];
+      const names = new Set(prev.map(f => f.webkitRelativePath || f.name));
+      const newFiles = valid.filter(f => !names.has(f.webkitRelativePath || f.name));
+      return [...prev, ...newFiles];
     });
-    setError("");
+    if (skipped > 0) setError(`Se omitieron ${skipped} archivo(s) no compatibles. Se cargaron ${valid.length} documentos válidos.`);
+    else setError("");
   }
 
   function removeFile(idx) {
@@ -373,30 +396,59 @@ function PdfExtractor({ onExtracted, onSkip }) {
           <Sparkles size={26} style={{color:C.purple}}/>
         </div>
         <h2 style={{color:C.navy,fontSize:20,fontFamily:"Georgia,serif",margin:"0 0 6px"}}>Extracción inteligente con IA</h2>
-        <p style={{fontSize:13,color:C.greyMid,margin:0}}>Sube los PDFs del expediente y la IA llenará el formulario automáticamente</p>
+        <p style={{fontSize:13,color:C.greyMid,margin:0}}>Sube PDFs, documentos Word, imágenes o una carpeta completa — la IA llenará el formulario automáticamente</p>
       </div>
 
       <div
         onDragOver={e=>{e.preventDefault();setDragOver(true);}}
         onDragLeave={()=>setDragOver(false)}
-        onDrop={e=>{e.preventDefault();setDragOver(false);addFiles(e.dataTransfer.files);}}
+        onDrop={e=>{
+          e.preventDefault();setDragOver(false);
+          // Handle folder drop via items API for deeper folder support
+          const dt=e.dataTransfer;
+          if(dt.items){
+            const fileArr=[];
+            const readEntry=(entry,path="")=>new Promise(resolve=>{
+              if(entry.isFile){
+                entry.file(f=>{
+                  Object.defineProperty(f,"webkitRelativePath",{value:path+f.name,configurable:true});
+                  fileArr.push(f);resolve();
+                },resolve);
+              } else if(entry.isDirectory){
+                const reader=entry.createReader();
+                const readAll=(entries=[])=>reader.readEntries(batch=>{
+                  if(!batch.length){
+                    Promise.all(entries.map(e2=>readEntry(e2,path+entry.name+"/"))).then(resolve);
+                  } else readAll([...entries,...batch]);
+                });
+                readAll();
+              } else resolve();
+            });
+            Promise.all(Array.from(dt.items).map(item=>{
+              const entry=item.webkitGetAsEntry&&item.webkitGetAsEntry();
+              return entry?readEntry(entry):Promise.resolve();
+            })).then(()=>addFiles(fileArr));
+          } else {
+            addFiles(dt.files);
+          }
+        }}
         onClick={()=>document.getElementById("pdf-input").click()}
         style={{border:`2px dashed ${dragOver?C.purple:C.greySoft}`,borderRadius:10,padding:"32px 20px",textAlign:"center",cursor:"pointer",background:dragOver?C.purpleSoft:"white",transition:"all 0.2s",marginBottom:16}}
       >
-        <FileUp size={28} style={{color:dragOver?C.purple:C.greyMid,margin:"0 auto 10px"}}/>
-        <div style={{fontSize:14,fontWeight:"500",color:dragOver?C.purple:C.navy,marginBottom:4}}>Arrastra PDFs o carpetas aquí</div>
-        <div style={{fontSize:12,color:C.greyMid,marginBottom:14}}>o usa los botones para seleccionar</div>
+        <FolderOpen size={28} style={{color:dragOver?C.purple:C.greyMid,margin:"0 auto 10px"}}/>
+        <div style={{fontSize:14,fontWeight:"500",color:dragOver?C.purple:C.navy,marginBottom:4}}>Arrastra archivos o carpetas aquí</div>
+        <div style={{fontSize:12,color:C.greyMid,marginBottom:14}}>PDF, Word (.docx) e imágenes (JPG, PNG) — incluye subcarpetas</div>
         <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>document.getElementById("pdf-input").click()}
             style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:`1.5px solid ${C.purple}`,background:"white",color:C.purple,fontSize:12,fontWeight:"bold",cursor:"pointer",letterSpacing:"0.06em"}}>
-            <FileUp size={13}/>Seleccionar PDFs
+            <FileUp size={13}/>Archivos
           </button>
           <button onClick={()=>document.getElementById("folder-input").click()}
             style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,border:`1.5px solid ${C.navy}`,background:"white",color:C.navy,fontSize:12,fontWeight:"bold",cursor:"pointer",letterSpacing:"0.06em"}}>
-            <FolderOpen size={13}/>Seleccionar carpeta
+            <FolderOpen size={13}/>Carpeta completa
           </button>
         </div>
-        <input id="pdf-input" type="file" accept=".pdf,application/pdf" multiple style={{display:"none"}}
+        <input id="pdf-input" type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.tiff" multiple style={{display:"none"}}
           onChange={e=>addFiles(e.target.files)}/>
         <input id="folder-input" type="file" webkitdirectory="" multiple style={{display:"none"}}
           onChange={e=>addFiles(e.target.files)}/>
@@ -404,22 +456,42 @@ function PdfExtractor({ onExtracted, onSkip }) {
 
       {files.length > 0 && (
         <div style={{marginBottom:16}}>
-          <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.greyMid,marginBottom:8}}>
-            {files.length} DOCUMENTO(S) CARGADO(S) — {(files.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1)} MB total
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:6}}>
+            <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.greyMid}}>
+              {files.length} DOCUMENTO(S) — {(files.reduce((s,f)=>s+f.size,0)/1024/1024).toFixed(1)} MB total
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              {Object.entries(ACCEPTED_TYPES).map(([type,cfg])=>{
+                const count=files.filter(f=>getFileType(f)===type).length;
+                return count>0?(
+                  <span key={type} style={{fontSize:10,fontWeight:"bold",padding:"2px 8px",borderRadius:999,background:cfg.color+"18",color:cfg.color,letterSpacing:"0.06em"}}>
+                    {count} {cfg.label}
+                  </span>
+                ):null;
+              })}
+            </div>
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {files.map((f,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:C.greyBg,borderRadius:6,border:`1px solid ${C.greySoft}`}}>
-                <FileText size={14} style={{color:C.navy,flexShrink:0}}/>
-                <div style={{flex:1,fontSize:12,color:C.charcoal,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
-                <div style={{fontSize:11,color:f.size>3*1024*1024?C.amber:C.greyMid,flexShrink:0,fontWeight:f.size>3*1024*1024?"bold":"normal"}}>
-                  {(f.size/1024/1024).toFixed(1)} MB {f.size>3*1024*1024?"(se comprimirá)":""}
+          <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:220,overflowY:"auto",paddingRight:2}}>
+            {files.map((f,i)=>{
+              const type=getFileType(f);
+              const cfg=ACCEPTED_TYPES[type]||{color:C.greyMid,label:"?"};
+              const relPath=f.webkitRelativePath||"";
+              const folder=relPath.includes("/")?relPath.split("/").slice(0,-1).join("/"):"";
+              return (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",background:C.greyBg,borderRadius:6,border:`1px solid ${C.greySoft}`}}>
+                <span style={{fontSize:9,fontWeight:"bold",padding:"2px 5px",borderRadius:4,background:cfg.color+"22",color:cfg.color,flexShrink:0,minWidth:28,textAlign:"center"}}>{cfg.label}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:C.charcoal,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+                  {folder&&<div style={{fontSize:10,color:C.greyMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📁 {folder}</div>}
                 </div>
-                <button onClick={e=>{e.stopPropagation();removeFile(i);}} style={{background:"none",border:"none",cursor:"pointer",padding:2}}>
+                <div style={{fontSize:10,color:f.size>3*1024*1024?C.amber:C.greyMid,flexShrink:0,fontWeight:f.size>3*1024*1024?"bold":"normal"}}>
+                  {(f.size/1024/1024).toFixed(1)} MB{f.size>3*1024*1024?" ⚡":""}
+                </div>
+                <button onClick={e=>{e.stopPropagation();removeFile(i);}} style={{background:"none",border:"none",cursor:"pointer",padding:2,flexShrink:0}}>
                   <X size={13} style={{color:C.red}}/>
                 </button>
               </div>
-            ))}
+            );})}
           </div>
         </div>
       )}
@@ -446,7 +518,7 @@ function PdfExtractor({ onExtracted, onSkip }) {
             cursor:files.length>0&&!loading?"pointer":"not-allowed",
             display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
           <Sparkles size={15}/>
-          {loading?"Analizando...":"Analizar con IA"}
+          {loading?status||"Analizando...":`Analizar ${files.length} documento(s) con IA`}
         </button>
         <button onClick={onSkip}
           style={{padding:"12px 20px",borderRadius:6,border:`1px solid ${C.greySoft}`,background:"white",color:C.greyMid,fontWeight:"bold",fontSize:13,cursor:"pointer"}}>
