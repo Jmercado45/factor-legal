@@ -274,7 +274,7 @@ function PdfExtractor({ onExtracted, onSkip }) {
     return null;
   }
 
-  const MAX_FILE_SIZE_MB = 10;
+  const MAX_FILE_SIZE_MB = 15;
   const MAX_TOTAL_SIZE_MB = 30;
   const MAX_FILE_COUNT = 20;
 
