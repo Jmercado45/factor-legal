@@ -1293,15 +1293,473 @@ export default function App() {
   );
 }
 
-// \u2500\u2500\u2500 NERAK LEGAL MODULE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+// ─── NERAK LEGAL MODULE ──────────────────────────────────────────────────────
+// Memo de Inversión: 8 secciones estructuradas
+// Determinístico: carátula, financiero, checklist, actores, recomendación
+// IA (1 llamada): resumen ejecutivo, narrativa jurídica, matriz riesgos
+
+function fmt(n){
+  if(n==null||n===false||isNaN(n))return "—";
+  return new Intl.NumberFormat("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0}).format(n);
+}
+function fmtM(n){
+  if(n==null||isNaN(n))return "—";
+  return `$${(n/1e6).toFixed(2)} M`;
+}
+function fmtPct(n){return (n!=null&&!isNaN(n))?`${n.toFixed(1)}%`:"—";}
+function fmtX(n){return (n!=null&&!isNaN(n))?`${n.toFixed(2)}x`:"—";}
+
+const RIESGO_COLOR={alto:C.red,media:C.amber,medio:C.amber,bajo:C.green,baja:C.green,alta:C.red};
+const RIESGO_BG={alto:C.redSoft,media:C.amberSoft,medio:C.amberSoft,bajo:C.greenSoft,baja:C.greenSoft,alta:C.redSoft};
+
+// ─── MemoVisor ───────────────────────────────────────────────────────────────
+function MemoVisor({memo,caso}) {
+  const kpis=calcKPIs(caso);
+  const ev=evaluarCaso(caso);
+  const entNombre=ENTIDADES.find(e=>e.id===caso.entidad)?.nombre||caso.entidad||"—";
+  const tipoProcNombre=TIPOS_PROCESO.find(t=>t.id===caso.tipoProceso)?.nombre||caso.tipoProceso||"—";
+  const escNombre=ESCENARIOS.find(s=>s.id===caso.escenario)?.nombre||caso.escenario||"—";
+  const today=new Date().toLocaleDateString("es-CO",{day:"2-digit",month:"long",year:"numeric"});
+
+  const veredictoColor=ev.veredicto==="apto"?C.green:ev.veredicto==="apto_con_alertas"?C.amber:C.red;
+  const veredictoLabel=ev.veredicto==="apto"?"APTO PARA INVERSIÓN":ev.veredicto==="apto_con_alertas"?"APTO CON CONDICIONES":"NO APTO — RECHAZADO";
+
+  const docsGroup=caso.escenario==="sentencia"?"sentencia":caso.escenario==="concJud"?"concJud":"concExtra";
+  const docsItems=DOCS[docsGroup]||[];
+  const docsOk=docsItems.filter(d=>caso.docs?.[d.id]);
+  const docsFalt=docsItems.filter(d=>!caso.docs?.[d.id]&&d.req);
+
+  const rechazosCausa=ev.alertas.filter(a=>a.tipo==="rechazo").map(a=>a.titulo).join("; ");
+  const alertasCausa=ev.alertas.filter(a=>a.tipo!=="rechazo").map(a=>a.titulo).join("; ");
+  const recomendacionTexto=ev.veredicto==="apto"
+    ?"El caso cumple la totalidad de los criterios del motor de elegibilidad de Factor Legal. Se recomienda proceder con la negociación y firma del contrato de cesión de derechos litigiosos, condicionado únicamente a la verificación completa del checklist documental."
+    :ev.veredicto==="apto_con_alertas"
+    ?`El caso es elegible con condicionantes. Alertas activas: ${alertasCausa||"ver sección 4"}. Se recomienda avanzar únicamente después de resolver las condiciones señaladas y completar la documentación faltante.`
+    :`El caso presenta causales de rechazo estructurales que impiden la inversión en las condiciones actuales. Rechazos: ${rechazosCausa||"ver sección 4"}. No se recomienda avanzar sin corrección de las causales identificadas.`;
+
+  function exportWord(){
+    const riesgosHtml=(memo.riesgos||[]).map(r=>`
+      <tr>
+        <td style="font-weight:bold;padding:6px 10px;border:1px solid #ddd;font-size:12px">${r.titulo||""}</td>
+        <td style="padding:6px 10px;border:1px solid #ddd;font-size:11px">${r.descripcion||""}</td>
+        <td style="text-align:center;padding:6px 10px;border:1px solid #ddd;font-weight:bold;font-size:11px;color:${RIESGO_COLOR[r.probabilidad]||"#333"}">${(r.probabilidad||"").toUpperCase()}</td>
+        <td style="text-align:center;padding:6px 10px;border:1px solid #ddd;font-weight:bold;font-size:11px;color:${RIESGO_COLOR[r.impacto]||"#333"}">${(r.impacto||"").toUpperCase()}</td>
+      </tr>`).join("");
+
+    const alertasHtml=ev.alertas.map(a=>`
+      <div style="margin-bottom:8px;padding:8px 12px;border-left:3px solid ${a.tipo==="rechazo"?"#B71C1C":a.tipo==="alerta"?"#B08D57":"#2E7D32"};background:${a.tipo==="rechazo"?"#fff5f5":a.tipo==="alerta"?"#fffbe6":"#f5fff5"}">
+        <strong style="font-size:12px">[${(a.tipo||"").toUpperCase()}] ${a.titulo||""}</strong>
+        <p style="margin:4px 0 0;font-size:11px;color:#555">${a.detalle||""}</p>
+      </div>`).join("");
+
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Memo de Inversión — ${caso.codigo||""}</title>
+<style>
+body{font-family:Georgia,serif;max-width:820px;margin:0 auto;padding:40px;color:#2F2F2F;line-height:1.75;font-size:13px}
+h1{color:#0B2545;font-size:20px;margin:0 0 4px}
+h2{color:#0B2545;font-size:12px;letter-spacing:0.08em;border-bottom:2px solid #B08D57;padding-bottom:6px;margin:32px 0 14px;text-transform:uppercase}
+.meta{font-size:11px;color:#6B6B6B;margin-bottom:3px}
+.badge{display:inline-block;padding:5px 16px;border-radius:20px;font-size:12px;font-weight:bold;color:white;background:${veredictoColor};margin:8px 0}
+table{width:100%;border-collapse:collapse;margin-bottom:12px}
+th{background:#0B2545;color:#B08D57;font-size:10px;letter-spacing:0.1em;padding:7px 10px;text-align:left;border:1px solid #0B2545}
+td{padding:6px 10px;border:1px solid #ddd;font-size:12px}
+tr:nth-child(even) td{background:#f9f9f9}
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
+.kpi{border:1px solid #E8E8E8;border-top:3px solid #0B2545;border-radius:6px;padding:10px;text-align:center}
+.kpi-val{font-size:16px;font-weight:bold;color:#0B2545}
+.kpi-lbl{font-size:9px;color:#6B6B6B;letter-spacing:0.1em;font-weight:bold;margin-top:2px}
+.narr{font-size:13px;line-height:1.9;color:#2F2F2F}
+.footer{margin-top:48px;padding-top:12px;border-top:1px solid #E8E8E8;font-size:10px;color:#aaa;text-align:center}
+.reco{background:#0B2545;color:white;padding:20px 24px;border-radius:8px}
+</style></head><body>
+
+<div style="border-bottom:4px solid #B08D57;padding-bottom:16px;margin-bottom:24px">
+  <div style="font-size:9px;color:#6B6B6B;letter-spacing:0.15em;font-weight:bold;margin-bottom:6px">MEMORANDO CONFIDENCIAL DE INVERSIÓN — FACTOR LEGAL S.A.S.</div>
+  <h1>${caso.codigo||""} — ${caso.demandanteNombre||""}</h1>
+  <div class="meta">Propuesta No.: ${caso.propuestaNo||"—"} &nbsp;·&nbsp; No. Interno: ${caso.noInterno||"—"} &nbsp;·&nbsp; Fecha: ${today}</div>
+  <div class="meta">Entidad: <strong>${entNombre}</strong> &nbsp;·&nbsp; Proceso: ${tipoProcNombre} &nbsp;·&nbsp; ${escNombre}</div>
+  <div class="meta">Radicado: ${caso.radicado||"—"} &nbsp;·&nbsp; Juzgado: ${caso.juzgado||"—"}</div>
+  <div class="badge">${veredictoLabel}</div>
+</div>
+
+<h2>1. Resumen Ejecutivo</h2>
+<div class="narr">${memo.resumen||"<em>Resumen no generado.</em>"}</div>
+
+<h2>2. Datos Financieros</h2>
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-val">${fmtM(kpis.nominal)}</div><div class="kpi-lbl">Valor Nominal</div></div>
+  <div class="kpi"><div class="kpi-val">${fmtM(kpis.desembolso)}</div><div class="kpi-lbl">Desembolso</div></div>
+  <div class="kpi"><div class="kpi-val">${fmtPct(kpis.descuento)}</div><div class="kpi-lbl">Descuento</div></div>
+  <div class="kpi"><div class="kpi-val">${fmtX(kpis.moic)}</div><div class="kpi-lbl">MOIC</div></div>
+  <div class="kpi"><div class="kpi-val">${kpis.mesesEjec!=null?kpis.mesesEjec+" m":"—"}</div><div class="kpi-lbl">Meses en Cobro</div></div>
+  <div class="kpi"><div class="kpi-val">${caso.porcHonorarios?caso.porcHonorarios+"%":"—"}</div><div class="kpi-lbl">Honorarios</div></div>
+</div>
+<table>
+  <tr><th>Componente</th><th>Valor</th><th>Nota</th></tr>
+  <tr><td>Capital indexado (IPC)</td><td>${fmt(kpis.capital)}</td><td>Liquidación judicial actualizada</td></tr>
+  <tr><td>Intereses moratorios</td><td>${fmt(kpis.intereses)}</td><td>Art. 176 CPACA — desde ejecutoria</td></tr>
+  <tr><td><strong>Valor Nominal Total</strong></td><td><strong>${fmt(kpis.nominal)}</strong></td><td>Capital + Intereses</td></tr>
+  <tr><td>Desembolso / Precio de compra</td><td>${fmt(kpis.desembolso)}</td><td>Giro al cedente propuesto</td></tr>
+  <tr><td>Descuento</td><td>${fmtPct(kpis.descuento)}</td><td>Sobre valor nominal</td></tr>
+  <tr><td>MOIC</td><td>${fmtX(kpis.moic)}</td><td>Nominal / Desembolso</td></tr>
+  <tr><td>Fecha ejecutoria</td><td>${caso.fechaEjecutoria||"—"}</td><td>Inicio período moratorio</td></tr>
+  <tr><td>Fecha cuenta de cobro</td><td>${caso.fechaCuentaCobro||"—"}</td><td>Radicación ante entidad</td></tr>
+  <tr><td>Radicado ejecutivo</td><td>${caso.radicadoEjecutivo||"—"}</td><td>Proceso de cobro</td></tr>
+</table>
+
+<h2>3. Narrativa Jurídica</h2>
+<div class="narr">${memo.narrativaJuridica||"<em>Narrativa no generada.</em>"}</div>
+
+<h2>4. Motor de Elegibilidad</h2>
+<div style="padding:10px 16px;border-radius:6px;border-left:4px solid ${veredictoColor};background:${ev.veredicto==="apto"?"#E8F5E9":ev.veredicto==="apto_con_alertas"?"#FFF8E1":"#FFEBEE"};margin-bottom:12px">
+  <strong style="color:${veredictoColor}">${veredictoLabel}</strong> — Motor de 14 reglas de elegibilidad.
+</div>
+${alertasHtml||"<p><em>Sin alertas identificadas.</em></p>"}
+
+<h2>5. Checklist Documental</h2>
+<table>
+  <tr><th>Documento</th><th>Requerido</th><th>Estado</th></tr>
+  ${docsItems.map(d=>`<tr>
+    <td>${d.label}</td>
+    <td style="text-align:center">${d.req?"Sí":""}</td>
+    <td style="text-align:center;font-weight:bold;color:${caso.docs?.[d.id]?"#2E7D32":d.req?"#B71C1C":"#6B6B6B"}">
+      ${caso.docs?.[d.id]?"✓ Recibido":d.req?"✗ Faltante":"— N/A"}
+    </td>
+  </tr>`).join("")}
+</table>
+<p style="font-size:11px;color:#6B6B6B"><strong>${docsOk.length}</strong> / ${docsItems.length} recibidos &nbsp;·&nbsp; Faltantes obligatorios: <strong>${docsFalt.length}</strong></p>
+
+<h2>6. Actores del Caso</h2>
+<table>
+  <tr><th>Rol</th><th>Nombre</th><th>Identificación</th></tr>
+  <tr><td>Cedente (Demandante)</td><td>${caso.demandanteNombre||"—"}</td><td>C.C. ${caso.cedenteCc||"—"}</td></tr>
+  <tr><td>Apoderado vigente</td><td>${caso.apoderadoNombre||"—"}</td><td>T.P. ${caso.apoderadoTp||"—"}</td></tr>
+  <tr><td>Entidad Demandada</td><td>${entNombre}</td><td>${escNombre}</td></tr>
+  <tr><td>Juzgado / Tribunal</td><td>${caso.juzgado||"—"}</td><td>Fallo: ${caso.fechaFallo||"—"}</td></tr>
+  <tr><td>Comercial FL</td><td>${caso.comercial||"—"}</td><td></td></tr>
+  <tr><td>Analista FL</td><td>${caso.analista||"—"}</td><td></td></tr>
+</table>
+
+<h2>7. Matriz de Riesgos</h2>
+${(memo.riesgos||[]).length>0?`
+<table>
+  <tr><th>Riesgo</th><th>Descripción</th><th>Probabilidad</th><th>Impacto</th></tr>
+  ${riesgosHtml}
+</table>`:"<p><em>Matriz no generada.</em></p>"}
+
+<h2>8. Recomendación de Inversión</h2>
+<div class="reco">
+  <div style="font-size:9px;color:#B08D57;letter-spacing:0.15em;font-weight:bold;margin-bottom:8px">DECISIÓN DEL COMITÉ DE INVERSIONES</div>
+  <div style="font-size:17px;font-weight:bold;color:${ev.veredicto==="apto"?"#81C784":ev.veredicto==="apto_con_alertas"?"#FFD54F":"#EF9A9A"};margin-bottom:10px">${veredictoLabel}</div>
+  <div style="font-size:12px;color:rgba(255,255,255,0.85);line-height:1.8">${recomendacionTexto}</div>
+</div>
+
+<div class="footer">Factor Legal S.A.S. — Documento confidencial de uso interno — Generado el ${today}<br>
+Memo de Inversión ${caso.codigo||""} — No circula sin autorización escrita</div>
+</body></html>`;
+    dl(html,`MemoInversion_${caso.codigo||"caso"}_${new Date().toISOString().slice(0,10)}.doc`,"application/msword");
+  }
+
+  const SectionTitle=({n,title})=>(
+    <div style={{display:"flex",alignItems:"center",gap:10,margin:"26px 0 12px"}}>
+      <div style={{width:22,height:22,borderRadius:"50%",background:C.navy,color:C.gold,fontSize:10,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</div>
+      <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,textTransform:"uppercase"}}>{title}</div>
+    </div>
+  );
+
+  return (
+    <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:10,overflow:"hidden"}}>
+      {/* Header */}
+      <div style={{background:C.navyDeep,padding:"20px 28px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:9,color:C.gold,letterSpacing:"0.2em",fontWeight:"bold",marginBottom:6}}>MEMORANDO CONFIDENCIAL DE INVERSIÓN</div>
+            <div style={{fontSize:18,color:"white",fontFamily:"Georgia,serif",fontWeight:"bold",marginBottom:4}}>{caso.codigo} — {caso.demandanteNombre||"—"}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:2}}>Entidad: {entNombre} &nbsp;·&nbsp; {tipoProcNombre}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.55)"}}>Radicado: {caso.radicado||"—"} &nbsp;·&nbsp; {today}</div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{display:"inline-block",padding:"5px 14px",borderRadius:20,fontSize:11,fontWeight:"bold",letterSpacing:"0.06em",color:"white",background:veredictoColor,marginBottom:8}}>{veredictoLabel}</div>
+            <div>
+              <button onClick={exportWord} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:5,border:`1px solid ${C.gold}`,background:"transparent",color:C.gold,fontWeight:"bold",fontSize:10,cursor:"pointer"}}>
+                <Download size={11}/>Exportar Word
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{padding:"0 28px 32px"}}>
+        {/* S1: Resumen Ejecutivo */}
+        <SectionTitle n="1" title="Resumen Ejecutivo"/>
+        <div style={{background:C.greyBg,borderRadius:7,padding:"14px 18px",fontSize:13,lineHeight:1.9,color:memo.resumen?C.charcoal:C.greyMid,fontStyle:memo.resumen?"normal":"italic"}}>
+          {memo.resumen||"Generando resumen ejecutivo con IA…"}
+        </div>
+
+        {/* S2: Financiero */}
+        <SectionTitle n="2" title="Datos Financieros"/>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:9,marginBottom:14}}>
+          {[
+            {v:fmtM(kpis.nominal),l:"Valor Nominal",c:C.navy},
+            {v:fmtM(kpis.desembolso),l:"Desembolso / Giro",c:C.navy},
+            {v:fmtPct(kpis.descuento),l:"Descuento",c:C.purple},
+            {v:fmtX(kpis.moic),l:"MOIC",c:C.green},
+            {v:kpis.mesesEjec!=null?`${kpis.mesesEjec} m`:"—",l:"Meses en Cobro",c:kpis.mesesEjec>24?C.red:C.amber},
+            {v:caso.porcHonorarios?`${caso.porcHonorarios}%`:"—",l:"Honorarios",c:C.navy},
+          ].map((kpi,i)=>(
+            <div key={i} style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${kpi.c}`,borderRadius:6,padding:"9px 12px",textAlign:"center"}}>
+              <div style={{fontSize:16,fontWeight:"bold",fontFamily:"Georgia,serif",color:kpi.c}}>{kpi.v}</div>
+              <div style={{fontSize:9,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold",marginTop:2}}>{kpi.l}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:11,color:C.greyMid,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,padding:"8px 0",borderTop:`1px solid ${C.greySoft}`}}>
+          {[
+            ["Capital indexado",fmt(kpis.capital)],
+            ["Intereses moratorios",fmt(kpis.intereses)],
+            ["Fecha ejecutoria",caso.fechaEjecutoria||"—"],
+            ["Fecha cuenta cobro",caso.fechaCuentaCobro||"—"],
+            ["Radicado NRD",caso.radicado||"—"],
+            ["Radicado ejecutivo",caso.radicadoEjecutivo||"—"],
+          ].map(([k,v],i)=>(
+            <div key={i}><span style={{fontWeight:"bold",color:C.charcoal}}>{k}:</span> {v}</div>
+          ))}
+        </div>
+
+        {/* S3: Narrativa Jurídica */}
+        <SectionTitle n="3" title="Narrativa Jurídica del Caso"/>
+        <div style={{fontSize:13,lineHeight:1.9,color:memo.narrativaJuridica?C.charcoal:C.greyMid,fontStyle:memo.narrativaJuridica?"normal":"italic"}}>
+          {memo.narrativaJuridica||"Generando narrativa jurídica con IA…"}
+        </div>
+
+        {/* S4: Motor elegibilidad */}
+        <SectionTitle n="4" title="Motor de Elegibilidad — 14 Reglas"/>
+        <div style={{background:ev.veredicto==="apto"?C.greenSoft:ev.veredicto==="apto_con_alertas"?C.amberSoft:C.redSoft,borderLeft:`4px solid ${veredictoColor}`,borderRadius:"0 6px 6px 0",padding:"10px 14px",marginBottom:10}}>
+          <div style={{fontWeight:"bold",color:veredictoColor,fontSize:13}}>{veredictoLabel}</div>
+          <div style={{fontSize:11,color:C.charcoal,marginTop:2}}>Resultado automático del motor de 14 reglas — Factor Legal S.A.S.</div>
+        </div>
+        {ev.alertas.length>0?(
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {ev.alertas.map((a,i)=>(
+              <div key={i} style={{padding:"7px 11px",borderRadius:5,borderLeft:`3px solid ${a.tipo==="rechazo"?C.red:a.tipo==="alerta"?C.amber:C.green}`,background:a.tipo==="rechazo"?C.redSoft:a.tipo==="alerta"?C.amberSoft:C.greenSoft}}>
+                <div style={{fontSize:11,fontWeight:"bold",color:a.tipo==="rechazo"?C.red:a.tipo==="alerta"?C.amber:C.green}}>[{(a.tipo||"").toUpperCase()}] {a.titulo}</div>
+                <div style={{fontSize:11,color:C.charcoal,marginTop:2}}>{a.detalle}</div>
+              </div>
+            ))}
+          </div>
+        ):(
+          <div style={{fontSize:12,color:C.greyMid,fontStyle:"italic",padding:"8px 0"}}>Sin alertas identificadas. El caso pasa todos los filtros del motor.</div>
+        )}
+
+        {/* S5: Checklist documental */}
+        <SectionTitle n="5" title="Checklist Documental"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:8}}>
+          {docsItems.map(d=>{
+            const ok=caso.docs?.[d.id];
+            return (
+              <div key={d.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 9px",borderRadius:4,background:ok?C.greenSoft:d.req?"#fff5f5":C.greyBg}}>
+                <div style={{width:14,height:14,borderRadius:"50%",background:ok?C.green:d.req?C.red:C.greyMid,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <span style={{color:"white",fontSize:8,fontWeight:"bold"}}>{ok?"✓":d.req?"✗":"·"}</span>
+                </div>
+                <span style={{fontSize:10,color:ok?C.green:d.req?C.red:C.greyMid,fontWeight:d.req?"bold":"normal",flex:1}}>{d.label}</span>
+                {d.req&&!ok&&<span style={{fontSize:8,color:C.red,fontWeight:"bold",flexShrink:0}}>REQ</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{fontSize:11,color:C.greyMid}}>
+          <strong style={{color:C.charcoal}}>{docsOk.length}</strong> / {docsItems.length} recibidos &nbsp;·&nbsp;
+          <strong style={{color:docsFalt.length>0?C.red:C.green}}>{docsFalt.length} obligatorio(s) faltante(s)</strong>
+        </div>
+
+        {/* S6: Actores */}
+        <SectionTitle n="6" title="Actores del Caso"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[
+            {rol:"Cedente (Demandante)",nom:caso.demandanteNombre||"—",det:`C.C. ${caso.cedenteCc||"—"}`},
+            {rol:"Apoderado vigente",nom:caso.apoderadoNombre||"—",det:`T.P. ${caso.apoderadoTp||"—"}`},
+            {rol:"Entidad Demandada",nom:entNombre,det:escNombre},
+            {rol:"Juzgado / Tribunal",nom:caso.juzgado||"—",det:`Fallo: ${caso.fechaFallo||"—"}`},
+            {rol:"Comercial FL",nom:caso.comercial||"—",det:""},
+            {rol:"Analista FL",nom:caso.analista||"—",det:""},
+          ].map((a,i)=>(
+            <div key={i} style={{background:C.greyBg,borderRadius:6,padding:"8px 11px"}}>
+              <div style={{fontSize:9,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>{a.rol}</div>
+              <div style={{fontSize:12,color:C.navy,fontWeight:"bold",marginTop:2}}>{a.nom}</div>
+              {a.det&&<div style={{fontSize:10,color:C.greyMid}}>{a.det}</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* S7: Riesgos */}
+        <SectionTitle n="7" title="Matriz de Riesgos"/>
+        {memo.riesgos===null?(
+          <div style={{fontSize:12,color:C.greyMid,fontStyle:"italic"}}>Generando matriz de riesgos con IA…</div>
+        ):memo.riesgos&&memo.riesgos.length>0?(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
+            {memo.riesgos.map((r,i)=>(
+              <div key={i} style={{border:`1px solid ${C.greySoft}`,borderLeft:`4px solid ${RIESGO_COLOR[r.impacto]||C.greyMid}`,borderRadius:6,padding:"10px 12px",background:RIESGO_BG[r.impacto]||C.greyBg}}>
+                <div style={{fontSize:11,fontWeight:"bold",color:C.navy,marginBottom:4}}>{r.titulo}</div>
+                <div style={{fontSize:11,color:C.charcoal,lineHeight:1.6,marginBottom:7}}>{r.descripcion}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <span style={{fontSize:9,fontWeight:"bold",padding:"2px 7px",borderRadius:10,background:RIESGO_COLOR[r.probabilidad]||C.greyMid,color:"white"}}>P: {(r.probabilidad||"—").toUpperCase()}</span>
+                  <span style={{fontSize:9,fontWeight:"bold",padding:"2px 7px",borderRadius:10,background:RIESGO_COLOR[r.impacto]||C.greyMid,color:"white"}}>I: {(r.impacto||"—").toUpperCase()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ):(
+          <div style={{fontSize:12,color:C.greyMid,fontStyle:"italic"}}>Sin riesgos adicionales identificados.</div>
+        )}
+
+        {/* S8: Recomendación */}
+        <SectionTitle n="8" title="Recomendación de Inversión"/>
+        <div style={{background:C.navyDeep,borderRadius:8,padding:"18px 22px"}}>
+          <div style={{fontSize:9,color:C.gold,letterSpacing:"0.15em",fontWeight:"bold",marginBottom:8}}>DECISIÓN DEL COMITÉ DE INVERSIONES — FACTOR LEGAL S.A.S.</div>
+          <div style={{fontSize:17,fontWeight:"bold",fontFamily:"Georgia,serif",marginBottom:10,color:ev.veredicto==="apto"?"#81C784":ev.veredicto==="apto_con_alertas"?"#FFD54F":"#EF9A9A"}}>{veredictoLabel}</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",lineHeight:1.8}}>{recomendacionTexto}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Contrato auto-poblado ───────────────────────────────────────────────────
+function ContratoVisor({caso,tipo}) {
+  const entNombre=ENTIDADES.find(e=>e.id===caso.entidad)?.nombre||caso.entidad||"[ENTIDAD]";
+  const today=new Date().toLocaleDateString("es-CO",{day:"2-digit",month:"long",year:"numeric"});
+  const kpis=calcKPIs(caso);
+
+  const PLANTILLAS_TPL={
+    sentencia:{
+      titulo:"CONTRATO DE CESIÓN DE DERECHOS LITIGIOSOS",
+      subtitulo:"(Sentencia Judicial — Factor Legal S.A.S.)",
+      cuerpo:`Entre los suscritos, a saber: [NOMBRE CEDENTE], identificado(a) con C.C. No. [CC], actuando en calidad de beneficiario(a) del fallo judicial No. [RADICADO], proferido por [JUZGADO/TRIBUNAL] el [FECHA FALLO], debidamente ejecutoriado el [FECHA EJECUTORIA], en adelante EL CEDENTE; y FACTOR LEGAL S.A.S., sociedad identificada con NIT. [NIT], en adelante EL CESIONARIO; se celebra el presente contrato de cesión de derechos litigiosos, sujeto a las siguientes cláusulas:
+
+PRIMERA — OBJETO: El CEDENTE cede y transfiere al CESIONARIO la totalidad de los derechos económicos que le corresponden en la sentencia identificada, por un valor nominal de [VALOR NOMINAL], comprensivo de capital ([CAPITAL]) e intereses moratorios ([INTERESES]).
+
+SEGUNDA — PRECIO: El CESIONARIO reconoce al CEDENTE la suma de [PRECIO COMPRA] como precio de la presente cesión, suma que se cancelará conforme a las condiciones pactadas en el acuerdo comercial adjunto.
+
+TERCERA — GARANTÍAS: El CEDENTE declara que los derechos cedidos se encuentran libres de gravámenes, hipotecas, embargos o cualquier medida cautelar. Declara igualmente que no existen cesiones previas sobre los mismos derechos.
+
+CUARTA — DOCUMENTACIÓN: El CEDENTE se obliga a entregar al CESIONARIO la totalidad de la documentación del proceso, incluyendo pero sin limitarse a: sentencias de instancia, constancias de ejecutoria, poderes vigentes, y cuentas de cobro radicadas.
+
+QUINTA — LEY APLICABLE: El presente contrato se rige por las normas del Código Civil colombiano sobre cesión de créditos y derechos litigiosos (Arts. 1959 y ss. C.C.), y las disposiciones del CPACA sobre cobro coactivo.
+
+Para constancia, se firma en [CIUDAD], a los [DÍA] días del mes de [MES] de [AÑO].
+
+_______________________________          _______________________________
+EL CEDENTE                                EL CESIONARIO
+[NOMBRE CEDENTE]                         FACTOR LEGAL S.A.S.
+C.C. No. [CC]                           NIT. [NIT]`
+    },
+    conciliacion:{
+      titulo:"CONTRATO DE CESIÓN DE DERECHOS CONCILIADOS",
+      subtitulo:"(Acuerdo de Conciliación — Factor Legal S.A.S.)",
+      cuerpo:`Entre los suscritos, a saber: [NOMBRE CEDENTE], identificado(a) con C.C. No. [CC], beneficiario(a) del acuerdo de conciliación aprobado mediante auto del [FECHA AUTO] por [JUZGADO/TRIBUNAL], con constancia de ejecutoria del [FECHA EJECUTORIA], en adelante EL CEDENTE; y FACTOR LEGAL S.A.S., identificada con NIT. [NIT], en adelante EL CESIONARIO; se celebra el presente contrato de cesión:
+
+PRIMERA — OBJETO: Cesión de la totalidad de los derechos económicos derivados del acuerdo de conciliación suscrito entre el CEDENTE y [ENTIDAD DEMANDADA], por valor de [VALOR CONCILIADO].
+
+SEGUNDA — PRECIO Y FORMA DE PAGO: El CESIONARIO pagará al CEDENTE la suma de [PRECIO COMPRA], en la forma y plazos acordados en el compromiso comercial suscrito entre las partes.
+
+TERCERA — ACTA DE CONCILIACIÓN: El CEDENTE declara que el acuerdo fue debidamente aprobado por el despacho competente, se encuentra ejecutoriado, y ha sido radicada la respectiva cuenta de cobro ante [ENTIDAD].
+
+CUARTA — OBLIGACIONES DEL CEDENTE: (i) Entregar originales o copias autenticadas de toda la documentación del proceso; (ii) suscribir poderes especiales para gestión de cobro; (iii) concurrir personalmente cuando la entidad pagadora lo requiera; (iv) abstenerse de suscribir nuevas cesiones, transacciones o gravámenes sobre los mismos derechos.
+
+QUINTA — OBLIGACIONES DEL CESIONARIO: Gestionar el cobro del crédito cedido ante [ENTIDAD DEMANDADA] con la diligencia debida, informando al CEDENTE sobre el avance del proceso de pago.
+
+SEXTA — RÉGIMEN JURÍDICO: El presente contrato se rige por los Arts. 1959 y siguientes del Código Civil, Ley 446 de 1998, Ley 640 de 2001 y normas concordantes.
+
+Firmado en [CIUDAD], el [FECHA].
+
+_______________________________          _______________________________
+EL CEDENTE                                EL CESIONARIO
+[NOMBRE CEDENTE]                         FACTOR LEGAL S.A.S.
+C.C. No. [CC]                           NIT. [NIT]`
+    }
+  };
+
+  const tpl=PLANTILLAS_TPL[tipo]||PLANTILLAS_TPL.sentencia;
+
+  function fill(tpl){
+    return tpl
+      .replace(/\[NOMBRE CEDENTE\]/g, caso.demandanteNombre||"[NOMBRE CEDENTE]")
+      .replace(/\[CC\]/g, caso.cedenteCc||"[CC]")
+      .replace(/\[RADICADO\]/g, caso.radicado||"[RADICADO]")
+      .replace(/\[JUZGADO\/TRIBUNAL\]/g, caso.juzgado||"[JUZGADO]")
+      .replace(/\[FECHA FALLO\]/g, caso.fechaFallo||"[FECHA FALLO]")
+      .replace(/\[FECHA EJECUTORIA\]/g, caso.fechaEjecutoria||"[FECHA EJECUTORIA]")
+      .replace(/\[VALOR NOMINAL\]/g, fmt(kpis.nominal))
+      .replace(/\[CAPITAL\]/g, fmt(kpis.capital))
+      .replace(/\[INTERESES\]/g, fmt(kpis.intereses))
+      .replace(/\[PRECIO COMPRA\]/g, fmt(kpis.desembolso))
+      .replace(/\[VALOR CONCILIADO\]/g, fmt(kpis.nominal))
+      .replace(/\[ENTIDAD DEMANDADA\]/g, entNombre)
+      .replace(/\[ENTIDAD\]/g, entNombre)
+      .replace(/\[FECHA AUTO\]/g, caso.fechaFallo||"[FECHA AUTO]")
+      .replace(/\[CIUDAD\]/g, "Bogotá D.C.")
+      .replace(/\[FECHA\]/g, today)
+      .replace(/\[DÍA\]/g, new Date().getDate().toString())
+      .replace(/\[MES\]/g, new Date().toLocaleString("es-CO",{month:"long"}))
+      .replace(/\[AÑO\]/g, new Date().getFullYear().toString())
+      .replace(/\[NIT\]/g, "901.234.567-8");
+  }
+
+  const cuerpoLleno=fill(tpl.cuerpo);
+  const tituloLleno=tpl.titulo;
+  const camposIncompletos=cuerpoLleno.includes("[");
+
+  function exportContrato(){
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${tituloLleno}</title>
+<style>body{font-family:Georgia,serif;max-width:800px;margin:40px auto;padding:0 40px;color:#333;line-height:1.9;font-size:13px}
+h1{color:#0B2545;font-size:16px;text-align:center;border-bottom:2px solid #B08D57;padding-bottom:10px}
+h2{color:#0B2545;font-size:12px;text-align:center;font-style:italic;margin-top:0}
+pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:13px;line-height:1.9}
+.footer{margin-top:48px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:10px}</style></head><body>
+<h1>${tituloLleno}</h1><h2>${tpl.subtitulo}</h2>
+<pre>${cuerpoLleno}</pre>
+<div class="footer">Factor Legal S.A.S. — Documento confidencial — ${today}</div>
+</body></html>`;
+    dl(html,`Contrato_${tipo}_${caso.codigo||"caso"}.doc`,"application/msword");
+  }
+
+  return (
+    <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+      <div style={{background:C.navy,padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:9,color:C.gold,letterSpacing:"0.12em",fontWeight:"bold",marginBottom:2}}>CONTRATO AUTO-POBLADO</div>
+          <div style={{fontSize:13,fontWeight:"bold",color:"white"}}>{tituloLleno}</div>
+          <div style={{fontSize:10,fontStyle:"italic",color:"rgba(255,255,255,0.6)"}}>{tpl.subtitulo}</div>
+        </div>
+        <button onClick={exportContrato} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:6,border:"none",background:C.gold,color:C.navy,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>
+          <Download size={12}/>Word
+        </button>
+      </div>
+      {camposIncompletos&&(
+        <div style={{background:C.amberSoft,borderBottom:`1px solid ${C.gold}`,padding:"7px 20px",fontSize:11,color:C.charcoal,display:"flex",alignItems:"center",gap:8}}>
+          <AlertCircle size={12} style={{color:C.amber,flexShrink:0}}/>
+          Campos pendientes: complete los datos del caso para auto-poblar el contrato.
+        </div>
+      )}
+      <div style={{padding:"24px 32px"}}>
+        <pre style={{whiteSpace:"pre-wrap",fontFamily:"Georgia,serif",fontSize:13,color:C.charcoal,lineHeight:1.9,margin:0}}>{cuerpoLleno}</pre>
+      </div>
+    </div>
+  );
+}
+
+// ─── NerakLegal (main) ───────────────────────────────────────────────────────
 function NerakLegal({casos,user,onOpenCaso}) {
   const [tab,setTab]=useState("dd");
-  const [alertasCaso,setAlertasCaso]=useState(null);
-  const [loadingIA,setLoadingIA]=useState(false);
-  const [plantilla,setPlantilla]=useState("sentencia");
+  const [memo,setMemo]=useState(null);           // {resumen, narrativaJuridica, riesgos}
+  const [memoCasoId,setMemoCasoId]=useState(null);
+  const [loadingMemo,setLoadingMemo]=useState(false);
+  const [plantillaTipo,setPlantillaTipo]=useState("sentencia");
+  const [contratoCasoId,setContratoCasoId]=useState(null);
 
   const casosConAlertas=useMemo(()=>casos.map(c=>{
-    const ev=c.eval||evaluarCaso(c);
+    const ev=evaluarCaso(c);
     return {...c,_ev:ev};
   }),[casos]);
 
@@ -1309,39 +1767,58 @@ function NerakLegal({casos,user,onOpenCaso}) {
   const conAlertas=casosConAlertas.filter(c=>c._ev.veredicto==="apto_con_alertas");
   const aptos=casosConAlertas.filter(c=>c._ev.veredicto==="apto");
 
-  async function generarAlertasIA(caso) {
-    setLoadingIA(true);
-    setAlertasCaso(null);
+  const memoCaso=memoCasoId?casosConAlertas.find(c=>c.id===memoCasoId):null;
+  const contratoCaso=contratoCasoId?casosConAlertas.find(c=>c.id===contratoCasoId):null;
+
+  async function generarMemo(caso) {
+    setMemoCasoId(caso.id);
+    setMemo({resumen:null,narrativaJuridica:null,riesgos:null});
+    setLoadingMemo(true);
+    setTab("memo");
+
+    const kpis=calcKPIs(caso);
+    const ev=evaluarCaso(caso);
+    const entNombre=ENTIDADES.find(e=>e.id===caso.entidad)?.nombre||caso.entidad||"—";
+    const tipoProcNombre=TIPOS_PROCESO.find(t=>t.id===caso.tipoProceso)?.nombre||"—";
+
+    const prompt=`Eres un analista senior de factor de sentencias judiciales en Colombia, con experiencia en debida diligencia de cesión de derechos litigiosos. Analiza este caso y responde ÚNICAMENTE con un objeto JSON válido con exactamente estas 3 claves:
+
+{
+  "resumen": "<párrafo de 100-130 palabras: síntesis ejecutiva del caso para un comité de inversiones. Incluir: quién demandó a quién, por qué concepto legal (ej: prima especial sin carácter salarial), cuánto vale el fallo, qué tan avanzado está el cobro, y la conclusión de inversión en una oración>",
+  "narrativaJuridica": "<2-3 párrafos: explicar el fundamento jurídico del caso (tipología de proceso, artículos aplicables, jurisprudencia relevante si existe), el estado procesal actual, y los aspectos legales relevantes para el cobro ante la entidad demandada>",
+  "riesgos": [
+    {"titulo":"<nombre del riesgo>","descripcion":"<descripción de 1-2 oraciones>","probabilidad":"alta|media|baja","impacto":"alto|medio|bajo"},
+    ... (máximo 5 riesgos, solo los materiales)
+  ]
+}
+
+DATOS DEL CASO:
+Código FL: ${caso.codigo}
+Demandante: ${caso.demandanteNombre||"—"} — C.C. ${caso.cedenteCc||"—"}
+Entidad demandada: ${entNombre}
+Tipo proceso: ${tipoProcNombre}
+Escenario: ${ESCENARIOS.find(s=>s.id===caso.escenario)?.nombre||"—"}
+Radicado NRD: ${caso.radicado||"—"}
+Radicado ejecutivo: ${caso.radicadoEjecutivo||"—"}
+Juzgado: ${caso.juzgado||"—"}
+Fecha fallo: ${caso.fechaFallo||"—"}
+Fecha ejecutoria: ${caso.fechaEjecutoria||"—"}
+Fecha cuenta de cobro: ${caso.fechaCuentaCobro||"—"}
+Capital indexado: ${fmt(kpis.capital)}
+Intereses moratorios: ${fmt(kpis.intereses)}
+Valor nominal total: ${fmt(kpis.nominal)}
+Desembolso propuesto: ${fmt(kpis.desembolso)}
+Descuento: ${fmtPct(kpis.descuento)}
+MOIC: ${fmtX(kpis.moic)}
+Meses desde ejecutoria: ${kpis.mesesEjec!=null?kpis.mesesEjec+" meses":"—"}
+Honorarios abogado: ${caso.porcHonorarios?caso.porcHonorarios+"%":"—"}
+Veredicto motor elegibilidad: ${ev.veredicto}
+Alertas motor: ${ev.alertas.map(a=>`[${a.tipo}] ${a.titulo}`).join("; ")||"ninguna"}
+Descripción caso: ${caso.descripcion||"—"}
+
+IMPORTANTE: Responde SOLO el JSON. Sin texto adicional antes ni después. Sin markdown. Sin explicaciones.`;
+
     try {
-      const kpis=calcKPIs(caso);
-      const ev=caso._ev||evaluarCaso(caso);
-      const prompt=`Eres un experto en due diligence de factoring de sentencias judiciales en Colombia.
-Analiza este caso y genera un reporte ejecutivo de riesgos y alertas:
-
-CASO: ${caso.codigo}
-Demandante: ${caso.demandanteNombre}
-Entidad: ${ENTIDADES.find(e=>e.id===caso.entidad)?.nombre||caso.entidad}
-Escenario: ${caso.escenario}
-Proceso: ${caso.tipoProceso}
-Capital: COP ${kpis.capital} M
-Intereses: COP ${kpis.intereses} M
-Nominal: COP ${kpis.nominal.toFixed(1)} M
-Desembolso: COP ${kpis.desembolso.toFixed(1)} M
-Descuento: ${kpis.descuento.toFixed(1)}%
-MOIC: ${kpis.moic.toFixed(2)}x
-Meses desde ejecutoria: ${kpis.mesesEjec||"N/A"}
-Veredicto motor: ${ev.veredicto}
-Alertas del motor: ${ev.alertas.map(a=>a.titulo).join(", ")||"ninguna"}
-
-Genera:
-1. RESUMEN EJECUTIVO (2-3 oraciones)
-2. RIESGOS CR\u00CDTICOS (lista)
-3. RIESGOS MODERADOS (lista)
-4. RECOMENDACIONES (lista de 3-5 acciones concretas)
-5. CONCLUSI\u00D3N INVERSI\u00D3N (apto/condicionado/rechazar con justificaci\u00F3n breve)
-
-Responde en espa\u00F1ol, formato estructurado, m\u00E1ximo 400 palabras.`;
-
       const res=await fetch(WORKER_URL,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
@@ -1349,183 +1826,173 @@ Responde en espa\u00F1ol, formato estructurado, m\u00E1ximo 400 palabras.`;
       });
       if(res.ok){
         const data=await res.json();
-        setAlertasCaso({
-          casoId:caso.id,
-          codigo:caso.codigo,
-          texto:data.analysis||data.result?.resumenHechos||"An\u00E1lisis generado. Revisa los riesgos identificados por el motor de elegibilidad.",
-          timestamp:new Date().toLocaleString("es-CO")
-        });
+        const rawText=data.analysis||data.result?.resumenHechos||"";
+        try {
+          // Extract JSON from response (handle markdown code blocks)
+          const jsonMatch=rawText.match(/\{[\s\S]*\}/);
+          if(jsonMatch){
+            const parsed=JSON.parse(jsonMatch[0]);
+            setMemo({
+              resumen:parsed.resumen||"Resumen no disponible.",
+              narrativaJuridica:parsed.narrativaJuridica||"Narrativa no disponible.",
+              riesgos:Array.isArray(parsed.riesgos)?parsed.riesgos:[]
+            });
+          } else {
+            throw new Error("No JSON found");
+          }
+        } catch(parseErr) {
+          // IA responded but not valid JSON — use raw text as resumen
+          setMemo({resumen:rawText.slice(0,600),narrativaJuridica:"Análisis de narrativa no disponible en este momento.",riesgos:[]});
+        }
       } else {
-        // Fallback: generate locally from motor alerts
-        const ev2=evaluarCaso(caso);
-        setAlertasCaso({
-          casoId:caso.id,
-          codigo:caso.codigo,
-          texto:`AN\u00C1LISIS LOCAL \u2014 ${caso.codigo}\n\nVeredicto: ${ev2.veredicto.toUpperCase()}\n\n${ev2.alertas.map(a=>`\u2022 [${a.tipo.toUpperCase()}] ${a.titulo}: ${a.detalle}`).join("\n\n")||"Sin alertas identificadas por el motor de elegibilidad."}`,
-          timestamp:new Date().toLocaleString("es-CO")
-        });
+        throw new Error("Worker error "+res.status);
       }
     } catch(e) {
-      const ev2=evaluarCaso(caso);
-      setAlertasCaso({
-        casoId:caso.id,
-        codigo:caso.codigo,
-        texto:`AN\u00C1LISIS DE RIESGOS \u2014 ${caso.codigo}\n\nVeredicto motor: ${ev2.veredicto.toUpperCase()}\n\n${ev2.alertas.map(a=>`[${a.tipo.toUpperCase()}] ${a.titulo}\n${a.detalle}`).join("\n\n")||"Sin alertas. Caso en buen estado."}`,
-        timestamp:new Date().toLocaleString("es-CO")
+      // Fallback: deterministic memo
+      setMemo({
+        resumen:`Caso ${caso.codigo} — ${caso.demandanteNombre||"demandante"}. Proceso de ${tipoProcNombre} contra ${entNombre}. Valor nominal: ${fmt(kpis.nominal)} (capital ${fmt(kpis.capital)} + intereses ${fmt(kpis.intereses)}). Desembolso propuesto: ${fmt(kpis.desembolso)} (descuento ${fmtPct(kpis.descuento)}, MOIC ${fmtX(kpis.moic)}). Veredicto del motor: ${ev.veredicto.replace(/_/g," ")}.`,
+        narrativaJuridica:`El caso corresponde a un proceso de ${tipoProcNombre} radicado ante ${caso.juzgado||"despacho competente"}, bajo el radicado ${caso.radicado||"—"}. La sentencia quedó ejecutoriada el ${caso.fechaEjecutoria||"—"}, con cuenta de cobro radicada el ${caso.fechaCuentaCobro||"—"} ante ${entNombre}. El proceso de cobro coactivo se adelanta bajo el régimen del CPACA.`,
+        riesgos:ev.alertas.filter(a=>a.tipo!=="info").slice(0,4).map(a=>({
+          titulo:a.titulo,descripcion:a.detalle,
+          probabilidad:a.tipo==="rechazo"?"alta":a.tipo==="alerta"?"media":"baja",
+          impacto:a.tipo==="rechazo"?"alto":a.tipo==="alerta"?"medio":"bajo"
+        }))
       });
     } finally {
-      setLoadingIA(false);
+      setLoadingMemo(false);
     }
   }
 
-  const PLANTILLAS={
-    sentencia:{
-      titulo:"CONTRATO DE CESI\u00D3N DE DERECHOS LITIGIOSOS",
-      subtitulo:"(Sentencia Judicial \u2014 Factor Legal S.A.S.)",
-      cuerpo:`Entre los suscritos, a saber: [NOMBRE CEDENTE], identificado(a) con C.C. No. [CC], actuando en calidad de beneficiario(a)/apoderado(a) del fallo judicial No. [RADICADO], proferido por [JUZGADO/TRIBUNAL] el [FECHA FALLO], debidamente ejecutoriado el [FECHA EJECUTORIA], en adelante EL CEDENTE; y FACTOR LEGAL S.A.S., sociedad identificada con NIT. [NIT], en adelante EL CESIONARIO; se celebra el presente contrato de cesi\u00F3n de derechos litigiosos, sujeto a las siguientes cl\u00E1usulas:
-
-PRIMERA \u2014 OBJETO: El CEDENTE cede y transfiere al CESIONARIO la totalidad de los derechos econ\u00F3micos que le corresponden en la sentencia identificada, por un valor nominal de COP [VALOR NOMINAL], comprensivo de capital (COP [CAPITAL]) e intereses moratorios (COP [INTERESES]).
-
-SEGUNDA \u2014 PRECIO: El CESIONARIO reconoce al CEDENTE la suma de COP [PRECIO COMPRA] como precio de la presente cesi\u00F3n, suma que se cancelar\u00E1 conforme a las condiciones pactadas en el acuerdo comercial adjunto.
-
-TERCERA \u2014 GARANT\u00CDAS: El CEDENTE declara que los derechos cedidos se encuentran libres de grav\u00E1menes, hipotecas, embargos o cualquier medida cautelar. Declara igualmente que no existen cesiones previas sobre los mismos derechos.
-
-CUARTA \u2014 DOCUMENTACI\u00D3N: El CEDENTE se obliga a entregar al CESIONARIO la totalidad de la documentaci\u00F3n del proceso, incluyendo pero sin limitarse a: sentencias de instancia, constancias de ejecutoria, poderes vigentes, y cuentas de cobro radicadas.
-
-QUINTA \u2014 LEY APLICABLE: El presente contrato se rige por las normas del C\u00F3digo Civil colombiano sobre cesi\u00F3n de cr\u00E9ditos y derechos litigiosos (Arts. 1959 y ss. C.C.), y las disposiciones del CPACA sobre cobro coactivo.
-
-Para constancia, se firma en [CIUDAD], a los [D\u00CDA] d\u00EDas del mes de [MES] de [A\u00D1O].
-
-_______________________________          _______________________________
-EL CEDENTE                                EL CESIONARIO
-[NOMBRE]                                  FACTOR LEGAL S.A.S.
-C.C. No. [CC]                            NIT. [NIT]`
-    },
-    conciliacion:{
-      titulo:"CONTRATO DE CESI\u00D3N DE DERECHOS CONCILIADOS",
-      subtitulo:"(Acuerdo de Conciliaci\u00F3n \u2014 Factor Legal S.A.S.)",
-      cuerpo:`Entre los suscritos, a saber: [NOMBRE CEDENTE], identificado(a) con C.C. No. [CC], beneficiario(a) del acuerdo de conciliaci\u00F3n aprobado mediante auto del [FECHA AUTO] por [JUZGADO/TRIBUNAL/PROCURADUR\u00CDA], con constancia de ejecutoria del [FECHA EJECUTORIA], en adelante EL CEDENTE; y FACTOR LEGAL S.A.S., identificada con NIT. [NIT], en adelante EL CESIONARIO; se celebra el presente contrato de cesi\u00F3n:
-
-PRIMERA \u2014 OBJETO: Cesi\u00F3n de la totalidad de los derechos econ\u00F3micos derivados del acuerdo de conciliaci\u00F3n suscrito entre el CEDENTE y [ENTIDAD DEMANDADA], por valor de COP [VALOR CONCILIADO].
-
-SEGUNDA \u2014 PRECIO Y FORMA DE PAGO: El CESIONARIO pagar\u00E1 al CEDENTE la suma de COP [PRECIO COMPRA], en la forma y plazos acordados en el compromiso comercial suscrito entre las partes.
-
-TERCERA \u2014 ACTA DE CONCILIACI\u00D3N: El CEDENTE declara que el acuerdo fue debidamente aprobado por el despacho competente, se encuentra ejecutoriado, y ha sido radicada la respectiva cuenta de cobro ante [ENTIDAD].
-
-CUARTA \u2014 OBLIGACIONES DEL CEDENTE: (i) Entregar originales o copias autenticadas de toda la documentaci\u00F3n del proceso; (ii) suscribir poderes especiales para gesti\u00F3n de cobro; (iii) concurrir personalmente cuando la entidad pagadora lo requiera; (iv) abstenerse de suscribir nuevas cesiones, transacciones o grav\u00E1menes sobre los mismos derechos.
-
-QUINTA \u2014 OBLIGACIONES DEL CESIONARIO: Gestionar el cobro del cr\u00E9dito cedido ante [ENTIDAD DEMANDADA] con la diligencia debida, informando al CEDENTE sobre el avance del proceso de pago.
-
-SEXTA \u2014 R\u00C9GIMEN JUR\u00CDDICO: El presente contrato se rige por los Arts. 1959 y siguientes del C\u00F3digo Civil, Ley 446 de 1998, Ley 640 de 2001 y normas concordantes.
-
-Firmado en [CIUDAD], el [FECHA].
-
-_______________________________          _______________________________
-EL CEDENTE                                EL CESIONARIO
-[NOMBRE]                                  FACTOR LEGAL S.A.S.
-C.C. No. [CC]                            NIT. [NIT]`
-    }
-  };
-
   const TabBtn=({id,label,Ic})=>(
-    <button onClick={()=>setTab(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:12,letterSpacing:"0.08em",background:tab===id?C.purple:"white",color:tab===id?"white":C.purple,border:tab===id?"none":`1px solid ${C.purple}`}}>
-      <Ic size={13}/>{label}
+    <button onClick={()=>setTab(id)} style={{display:"flex",alignItems:"center",gap:7,padding:"9px 18px",borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:11,letterSpacing:"0.08em",background:tab===id?C.purple:"white",color:tab===id?"white":C.purple,border:tab===id?"none":`1px solid ${C.purple}`,transition:"all 0.15s"}}>
+      <Ic size={12}/>{label}
     </button>
   );
 
   return (
     <div style={{maxWidth:1200,margin:"0 auto",padding:"32px 24px"}}>
       {/* Header */}
-      <div style={{marginBottom:32,display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+      <div style={{marginBottom:28,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16}}>
         <div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-            <div style={{background:C.purpleSoft,borderRadius:8,padding:"4px 10px",display:"flex",alignItems:"center",gap:6}}>
-              <Sparkles size={13} style={{color:C.purple}}/>
-              <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.12em",color:C.purple}}>M\u00D3DULO RESTRINGIDO</span>
+            <div style={{background:C.purpleSoft,borderRadius:8,padding:"3px 10px",display:"flex",alignItems:"center",gap:6}}>
+              <Sparkles size={12} style={{color:C.purple}}/>
+              <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.12em",color:C.purple}}>MÓDULO RESTRINGIDO</span>
             </div>
             <div style={{fontSize:10,color:C.greyMid}}>Acceso: {user.role}</div>
           </div>
-          <h1 style={{color:C.navy,fontSize:28,fontFamily:"Georgia,serif",margin:0}}>Nerak Legal</h1>
-          <div style={{fontSize:13,fontStyle:"italic",color:C.greyMid,marginTop:4}}>Due Diligence Avanzado \u00B7 Alertas IA \u00B7 Plantillas de Contratos</div>
-          <div style={{height:3,width:64,background:C.purple,marginTop:10}}/>
+          <h1 style={{color:C.navy,fontSize:26,fontFamily:"Georgia,serif",margin:"0 0 4px"}}>Nerak Legal</h1>
+          <div style={{fontSize:12,fontStyle:"italic",color:C.greyMid}}>Due Diligence Avanzado · Memo de Inversión · Contratos</div>
+          <div style={{height:3,width:56,background:C.purple,marginTop:10}}/>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,textAlign:"center"}}>
-          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${C.green}`,borderRadius:8,padding:16}}>
-            <div style={{fontSize:24,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{aptos.length}</div>
-            <div style={{fontSize:10,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>APTOS</div>
-          </div>
-          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${C.amber}`,borderRadius:8,padding:16}}>
-            <div style={{fontSize:24,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{conAlertas.length}</div>
-            <div style={{fontSize:10,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>CON ALERTAS</div>
-          </div>
-          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${C.red}`,borderRadius:8,padding:16}}>
-            <div style={{fontSize:24,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{rechazados.length}</div>
-            <div style={{fontSize:10,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>NO APTOS</div>
-          </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,textAlign:"center"}}>
+          {[{n:aptos.length,l:"APTOS",c:C.green},{n:conAlertas.length,l:"CON ALERTAS",c:C.amber},{n:rechazados.length,l:"NO APTOS",c:C.red}].map((s,i)=>(
+            <div key={i} style={{background:"white",border:`1px solid ${C.greySoft}`,borderTop:`3px solid ${s.c}`,borderRadius:8,padding:"12px 16px"}}>
+              <div style={{fontSize:22,fontWeight:"bold",fontFamily:"Georgia,serif",color:C.navy}}>{s.n}</div>
+              <div style={{fontSize:9,color:C.greyMid,letterSpacing:"0.1em",fontWeight:"bold"}}>{s.l}</div>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:8,marginBottom:24}}>
+      <div style={{display:"flex",gap:7,marginBottom:22}}>
         <TabBtn id="dd" label="DD Avanzado" Ic={BarChart3}/>
-        <TabBtn id="alertas" label="Alertas IA" Ic={Sparkles}/>
-        <TabBtn id="plantillas" label="Plantillas de Contratos" Ic={FileText}/>
+        <TabBtn id="memo" label="Memo de Inversión" Ic={Sparkles}/>
+        <TabBtn id="contratos" label="Contratos" Ic={FileText}/>
       </div>
 
-      {/* TAB: DD AVANZADO */}
+      {/* ── TAB: DD AVANZADO ── */}
       {tab==="dd"&&(
         <div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
-            {/* Casos con alertas */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+            {/* Con alertas */}
             <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
-              <div style={{background:C.amber,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
-                <ShieldAlert size={13} style={{color:"white"}}/>
-                <span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>REQUIEREN GESTI\u00D3N ({conAlertas.length})</span>
+              <div style={{background:C.amber,padding:"9px 14px",display:"flex",alignItems:"center",gap:7}}>
+                <ShieldAlert size={12} style={{color:"white"}}/>
+                <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>REQUIEREN GESTIÓN ({conAlertas.length})</span>
               </div>
-              {conAlertas.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos pendientes</div>):
+              {conAlertas.length===0?(<div style={{padding:28,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos pendientes</div>):
               conAlertas.map(c=>{
                 const kpis=calcKPIs(c);
-                return (<button key={c.id} onClick={()=>onOpenCaso(c.id)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"none",border:"none",borderBottom:`1px solid ${C.greySoft}`,cursor:"pointer",textAlign:"left"}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
-                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"\u2014"}</div>
-                    <div style={{fontSize:11,color:C.amber,fontWeight:"bold",marginTop:2}}>{c._ev.alertas.filter(a=>a.tipo==="alerta").length} alerta(s) \u00B7 {c._ev.alertas.filter(a=>a.tipo==="pendiente").length} pendiente(s)</div>
+                return (
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${C.greySoft}`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                      <div style={{fontSize:11,color:C.greyMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.demandanteNombre||"—"}</div>
+                      <div style={{fontSize:10,color:C.amber,fontWeight:"bold",marginTop:2}}>{c._ev.alertas.filter(a=>a.tipo==="alerta").length} alerta(s) · {c._ev.alertas.filter(a=>a.tipo==="pendiente").length} pendiente(s)</div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:11,fontFamily:"monospace",color:C.navy}}>{fmtM(kpis.nominal)}</div>
+                      <div style={{fontSize:10,color:C.greyMid}}>{fmtPct(kpis.descuento)} dto</div>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      <button onClick={()=>onOpenCaso(c.id)} style={{padding:"3px 7px",fontSize:9,borderRadius:4,border:`1px solid ${C.greySoft}`,background:"white",cursor:"pointer",color:C.navy,fontWeight:"bold"}}>Ver</button>
+                      <button onClick={()=>generarMemo(c)} style={{padding:"3px 7px",fontSize:9,borderRadius:4,border:"none",background:C.purple,cursor:"pointer",color:"white",fontWeight:"bold"}}>Memo</button>
+                    </div>
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:11,fontFamily:"monospace",color:C.navy}}>COP {kpis.nominal.toFixed(0)} M</div>
-                    <div style={{fontSize:10,color:C.greyMid}}>{kpis.descuento.toFixed(1)}% dto</div>
-                  </div>
-                  <ChevronRight size={13} style={{color:C.greyMid}}/>
-                </button>);
+                );
               })}
             </div>
-            {/* Casos rechazados */}
+            {/* Rechazados */}
             <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
-              <div style={{background:C.red,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
-                <ShieldX size={13} style={{color:"white"}}/>
-                <span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>NO APTOS \u2014 CAUSALES DE RECHAZO ({rechazados.length})</span>
+              <div style={{background:C.red,padding:"9px 14px",display:"flex",alignItems:"center",gap:7}}>
+                <ShieldX size={12} style={{color:"white"}}/>
+                <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>NO APTOS — RECHAZADOS ({rechazados.length})</span>
               </div>
-              {rechazados.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos rechazados</div>):
+              {rechazados.length===0?(<div style={{padding:28,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos rechazados</div>):
               rechazados.map(c=>(
-                <button key={c.id} onClick={()=>onOpenCaso(c.id)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"none",border:"none",borderBottom:`1px solid ${C.greySoft}`,cursor:"pointer",textAlign:"left"}}>
-                  <div style={{flex:1}}>
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${C.greySoft}`}}>
+                  <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
-                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"\u2014"}</div>
-                    <div style={{fontSize:11,color:C.red,marginTop:2}}>{c._ev.alertas.filter(a=>a.tipo==="rechazo").map(a=>a.titulo).join(" \u00B7 ")}</div>
+                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"—"}</div>
+                    <div style={{fontSize:10,color:C.red,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c._ev.alertas.filter(a=>a.tipo==="rechazo").map(a=>a.titulo).join(" · ")}</div>
                   </div>
-                  <ChevronRight size={13} style={{color:C.greyMid}}/>
-                </button>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    <button onClick={()=>onOpenCaso(c.id)} style={{padding:"3px 7px",fontSize:9,borderRadius:4,border:`1px solid ${C.greySoft}`,background:"white",cursor:"pointer",color:C.navy,fontWeight:"bold"}}>Ver</button>
+                    <button onClick={()=>generarMemo(c)} style={{padding:"3px 7px",fontSize:9,borderRadius:4,border:"none",background:C.purple,cursor:"pointer",color:"white",fontWeight:"bold"}}>Memo</button>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
-          {/* Exposure table */}
-          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
-            <div style={{background:C.navy,padding:"10px 16px",display:"flex",alignItems:"center",gap:8}}>
-              <BarChart3 size={13} style={{color:C.gold}}/>
-              <span style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>EXPOSICI\u00D3N AGREGADA POR ENTIDAD</span>
+
+          {/* Aptos */}
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden",marginBottom:16}}>
+            <div style={{background:C.green,padding:"9px 14px",display:"flex",alignItems:"center",gap:7}}>
+              <ShieldCheck size={12} style={{color:"white"}}/>
+              <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>APTOS PARA INVERSIÓN ({aptos.length})</span>
             </div>
-            <div style={{padding:16}}>
-              {(() => {
+            {aptos.length===0?(<div style={{padding:24,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos aptos</div>):(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:0}}>
+                {aptos.map(c=>{
+                  const kpis=calcKPIs(c);
+                  return (
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${C.greySoft}`,borderRight:`1px solid ${C.greySoft}`}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                        <div style={{fontSize:11,color:C.greyMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.demandanteNombre||"—"}</div>
+                        <div style={{fontSize:10,color:C.green,fontWeight:"bold",marginTop:2}}>{fmtM(kpis.nominal)} · {fmtX(kpis.moic)} MOIC</div>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                        <button onClick={()=>onOpenCaso(c.id)} style={{padding:"3px 7px",fontSize:9,borderRadius:4,border:`1px solid ${C.greySoft}`,background:"white",cursor:"pointer",color:C.navy,fontWeight:"bold"}}>Ver</button>
+                        <button onClick={()=>generarMemo(c)} style={{padding:"3px 7px",fontSize:9,borderRadius:4,border:"none",background:C.purple,cursor:"pointer",color:"white",fontWeight:"bold"}}>Memo</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Exposición por entidad */}
+          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
+            <div style={{background:C.navy,padding:"9px 14px",display:"flex",alignItems:"center",gap:7}}>
+              <BarChart3 size={12} style={{color:C.gold}}/>
+              <span style={{fontSize:10,fontWeight:"bold",letterSpacing:"0.1em",color:"white"}}>EXPOSICIÓN AGREGADA POR ENTIDAD</span>
+            </div>
+            <div style={{padding:14}}>
+              {(()=>{
                 const byEnt={};
                 casosConAlertas.forEach(c=>{
                   const eName=ENTIDADES.find(e=>e.id===c.entidad)?.nombre||c.entidad||"Sin entidad";
@@ -1539,21 +2006,21 @@ C.C. No. [CC]                            NIT. [NIT]`
                   else byEnt[eName].rechazados++;
                 });
                 const arr=Object.entries(byEnt).sort((a,b)=>b[1].nominal-a[1].nominal);
-                if(arr.length===0)return <div style={{textAlign:"center",padding:32,fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin datos</div>;
+                if(arr.length===0)return <div style={{textAlign:"center",padding:28,fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin datos</div>;
                 return (<>
-                  <div style={{display:"grid",gridTemplateColumns:"2fr 80px 100px 100px 80px",gap:8,padding:"6px 8px",background:C.navy,borderRadius:4,marginBottom:8}}>
-                    {["ENTIDAD","CASOS","NOMINAL (M)","DESEMBOLSO (M)","ESTADO"].map((h,i)=>(
+                  <div style={{display:"grid",gridTemplateColumns:"2fr 60px 110px 110px 80px",gap:6,padding:"5px 8px",background:C.navy,borderRadius:4,marginBottom:6}}>
+                    {["ENTIDAD","CASOS","NOMINAL","DESEMBOLSO","ESTADO"].map((h,i)=>(
                       <div key={i} style={{fontSize:9,fontWeight:"bold",color:C.gold,letterSpacing:"0.1em",textAlign:i>0?"center":"left"}}>{h}</div>
                     ))}
                   </div>
                   {arr.map(([ent,d])=>(
-                    <div key={ent} style={{display:"grid",gridTemplateColumns:"2fr 80px 100px 100px 80px",gap:8,padding:"8px",borderBottom:`1px solid ${C.greySoft}`,alignItems:"center"}}>
-                      <div style={{fontSize:12,color:C.navy,fontWeight:"bold"}}>{ent}</div>
-                      <div style={{fontSize:12,fontFamily:"monospace",textAlign:"center"}}>{d.count}</div>
-                      <div style={{fontSize:12,fontFamily:"monospace",textAlign:"center",color:C.navy}}>{d.nominal.toFixed(0)}</div>
-                      <div style={{fontSize:12,fontFamily:"monospace",textAlign:"center"}}>{d.desembolso.toFixed(0)}</div>
+                    <div key={ent} style={{display:"grid",gridTemplateColumns:"2fr 60px 110px 110px 80px",gap:6,padding:"7px 8px",borderBottom:`1px solid ${C.greySoft}`,alignItems:"center"}}>
+                      <div style={{fontSize:11,color:C.navy,fontWeight:"bold"}}>{ent}</div>
+                      <div style={{fontSize:11,fontFamily:"monospace",textAlign:"center"}}>{d.count}</div>
+                      <div style={{fontSize:11,fontFamily:"monospace",textAlign:"center",color:C.navy}}>{fmtM(d.nominal)}</div>
+                      <div style={{fontSize:11,fontFamily:"monospace",textAlign:"center"}}>{fmtM(d.desembolso)}</div>
                       <div style={{textAlign:"center",fontSize:10,fontWeight:"bold"}}>
-                        <span style={{color:C.green}}>{d.aptos}\u2713</span> <span style={{color:C.amber}}>{d.alertas}\u26A0</span> <span style={{color:C.red}}>{d.rechazados}\u2717</span>
+                        <span style={{color:C.green}}>{d.aptos}✓</span> <span style={{color:C.amber}}>{d.alertas}⚠</span> <span style={{color:C.red}}>{d.rechazados}✗</span>
                       </div>
                     </div>
                   ))}
@@ -1564,100 +2031,101 @@ C.C. No. [CC]                            NIT. [NIT]`
         </div>
       )}
 
-      {/* TAB: ALERTAS IA */}
-      {tab==="alertas"&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24}}>
-          <div>
-            <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:12}}>SELECCIONAR CASO PARA AN\u00C1LISIS IA</div>
-            <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:480,overflowY:"auto"}}>
-              {casosConAlertas.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos registrados</div>):
-              casosConAlertas.map(c=>(
-                <button key={c.id} onClick={()=>generarAlertasIA(c)} disabled={loadingIA}
-                  style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"white",border:`1px solid ${alertasCaso?.casoId===c.id?C.purple:C.greySoft}`,borderRadius:6,cursor:"pointer",textAlign:"left",opacity:loadingIA?0.6:1}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
-                    <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"\u2014"} \u00B7 {ENTIDADES.find(e=>e.id===c.entidad)?.nombre||"\u2014"}</div>
-                  </div>
-                  <Badge verdict={c._ev.veredicto}/>
-                  <Sparkles size={13} style={{color:C.purple}}/>
-                </button>
-              ))}
+      {/* ── TAB: MEMO DE INVERSIÓN ── */}
+      {tab==="memo"&&(
+        <div>
+          {!memoCasoId&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:12}}>SELECCIONAR CASO PARA GENERAR MEMO DE INVERSIÓN</div>
+              <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:500,overflowY:"auto"}}>
+                {casosConAlertas.length===0?(<div style={{padding:32,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos registrados</div>):
+                casosConAlertas.map(c=>{
+                  const kpis=calcKPIs(c);
+                  return (
+                    <button key={c.id} onClick={()=>generarMemo(c)}
+                      style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:"white",border:`1px solid ${C.greySoft}`,borderRadius:6,cursor:"pointer",textAlign:"left"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:12,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                        <div style={{fontSize:11,color:C.greyMid}}>{c.demandanteNombre||"—"} · {ENTIDADES.find(e=>e.id===c.entidad)?.nombre||"—"}</div>
+                        <div style={{fontSize:11,color:C.greyMid}}>{fmtM(kpis.nominal)} nominal · {fmtX(kpis.moic)} MOIC</div>
+                      </div>
+                      <div style={{padding:"4px 10px",borderRadius:12,fontSize:10,fontWeight:"bold",color:"white",background:c._ev.veredicto==="apto"?C.green:c._ev.veredicto==="apto_con_alertas"?C.amber:C.red}}>
+                        {c._ev.veredicto==="apto"?"APTO":c._ev.veredicto==="apto_con_alertas"?"ALERTAS":"NO APTO"}
+                      </div>
+                      <Sparkles size={13} style={{color:C.purple,flexShrink:0}}/>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-          <div>
-            <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:12}}>AN\u00C1LISIS GENERADO</div>
-            {loadingIA&&(
-              <div style={{background:C.purpleSoft,border:`1px solid ${C.purple}`,borderRadius:8,padding:32,textAlign:"center"}}>
-                <div style={{width:32,height:32,border:`3px solid ${C.purple}`,borderTop:"3px solid transparent",borderRadius:"50%",animation:"spin 1s linear infinite",margin:"0 auto 12px"}}/>
-                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-                <div style={{fontSize:13,color:C.purple,fontWeight:"bold"}}>Analizando con IA\u2026</div>
-                <div style={{fontSize:11,color:C.purple,fontStyle:"italic",marginTop:4}}>Evaluando riesgos jur\u00EDdicos y financieros</div>
+          )}
+
+          {memoCasoId&&(
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                <button onClick={()=>{setMemoCasoId(null);setMemo(null);}} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:5,border:`1px solid ${C.greySoft}`,background:"white",cursor:"pointer",fontSize:11,color:C.navy,fontWeight:"bold"}}>
+                  <ArrowLeft size={12}/>Otro caso
+                </button>
+                {loadingMemo&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 14px",borderRadius:5,background:C.purpleSoft,border:`1px solid ${C.purple}`}}>
+                    <div style={{width:14,height:14,border:`2px solid ${C.purple}`,borderTop:"2px solid transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                    <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                    <span style={{fontSize:11,color:C.purple,fontWeight:"bold"}}>Generando memo con IA…</span>
+                  </div>
+                )}
+                {!loadingMemo&&memo&&(
+                  <div style={{fontSize:11,color:C.greyMid,fontStyle:"italic"}}>
+                    Memo generado · {new Date().toLocaleString("es-CO")}
+                  </div>
+                )}
               </div>
-            )}
-            {!loadingIA&&alertasCaso&&(
-              <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
-                <div style={{background:C.purple,padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}><Sparkles size={13} style={{color:"white"}}/><span style={{fontSize:11,fontWeight:"bold",color:"white",letterSpacing:"0.1em"}}>AN\u00C1LISIS IA \u2014 {alertasCaso.codigo}</span></div>
-                  <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>{alertasCaso.timestamp}</div>
-                </div>
-                <div style={{padding:20,whiteSpace:"pre-wrap",fontSize:12,color:C.charcoal,lineHeight:1.7,maxHeight:400,overflowY:"auto"}}>{alertasCaso.texto}</div>
-                <div style={{padding:"10px 16px",borderTop:`1px solid ${C.greySoft}`,display:"flex",gap:8}}>
-                  <button onClick={()=>{const blob=new Blob([alertasCaso.texto],{type:"text/plain;charset=utf-8"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=`AlertasIA_${alertasCaso.codigo}.txt`;a.click();URL.revokeObjectURL(u);}}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:4,border:"none",background:C.purple,color:"white",fontSize:11,fontWeight:"bold",cursor:"pointer"}}>
-                    <Download size={11}/>Exportar
-                  </button>
-                </div>
-              </div>
-            )}
-            {!loadingIA&&!alertasCaso&&(
-              <div style={{background:C.purpleSoft,border:`1px solid ${C.purple}`,borderRadius:8,padding:48,textAlign:"center"}}>
-                <Sparkles size={32} style={{color:C.purple,margin:"0 auto 12px"}}/>
-                <div style={{fontSize:13,color:C.purple,fontWeight:"bold",marginBottom:4}}>Selecciona un caso</div>
-                <div style={{fontSize:11,color:C.purple,fontStyle:"italic"}}>El motor de IA analizar\u00E1 riesgos jur\u00EDdicos y financieros</div>
-              </div>
-            )}
-          </div>
+              {memoCaso&&memo&&<MemoVisor memo={memo} caso={memoCaso}/>}
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB: PLANTILLAS */}
-      {tab==="plantillas"&&(
+      {/* ── TAB: CONTRATOS ── */}
+      {tab==="contratos"&&(
         <div>
-          <div style={{display:"flex",gap:8,marginBottom:24}}>
-            {[{id:"sentencia",label:"Cesi\u00F3n de Sentencia",Ic:Gavel},{id:"conciliacion",label:"Cesi\u00F3n de Conciliaci\u00F3n",Ic:Scale}].map(({id,label,Ic})=>(
-              <button key={id} onClick={()=>setPlantilla(id)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:6,cursor:"pointer",fontWeight:"bold",fontSize:12,background:plantilla===id?C.navy:"white",color:plantilla===id?C.gold:C.navy,border:plantilla===id?"none":`1px solid ${C.greySoft}`}}>
-                <Ic size={13}/>{label}
-              </button>
-            ))}
-          </div>
-          <div style={{background:"white",border:`1px solid ${C.greySoft}`,borderRadius:8,overflow:"hidden"}}>
-            <div style={{background:C.navy,padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:10,fontWeight:"bold",color:C.gold,letterSpacing:"0.12em",marginBottom:2}}>PLANTILLA DE CONTRATO</div>
-                <div style={{fontSize:13,fontWeight:"bold",color:"white"}}>{PLANTILLAS[plantilla].titulo}</div>
-                <div style={{fontSize:11,fontStyle:"italic",color:"rgba(255,255,255,0.7)"}}>{PLANTILLAS[plantilla].subtitulo}</div>
+          <div style={{display:"grid",gridTemplateColumns:"300px 1fr",gap:20}}>
+            {/* Panel izquierdo: selección */}
+            <div>
+              <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:10}}>TIPO DE CONTRATO</div>
+              <div style={{display:"flex",gap:6,marginBottom:16}}>
+                {[{id:"sentencia",label:"Cesión Sentencia",Ic:Gavel},{id:"conciliacion",label:"Cesión Conciliación",Ic:Scale}].map(({id,label,Ic})=>(
+                  <button key={id} onClick={()=>setPlantillaTipo(id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 11px",borderRadius:5,cursor:"pointer",fontWeight:"bold",fontSize:10,background:plantillaTipo===id?C.navy:"white",color:plantillaTipo===id?C.gold:C.navy,border:plantillaTipo===id?"none":`1px solid ${C.greySoft}`}}>
+                    <Ic size={11}/>{label}
+                  </button>
+                ))}
               </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{
-                  const content=`${PLANTILLAS[plantilla].titulo}\n${PLANTILLAS[plantilla].subtitulo}\n\n${PLANTILLAS[plantilla].cuerpo}`;
-                  dl(content,`Plantilla_${plantilla}_FactorLegal.txt`,"text/plain;charset=utf-8");
-                }} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:6,border:`1px solid ${C.gold}`,background:"transparent",color:C.gold,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>
-                  <Download size={12}/>TXT
-                </button>
-                <button onClick={()=>{
-                  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${PLANTILLAS[plantilla].titulo}</title><style>body{font-family:Georgia,serif;max-width:800px;margin:40px auto;padding:0 40px;color:#333;line-height:1.8}h1{color:#0B2545;font-size:18px;text-align:center;border-bottom:2px solid #B08D57;padding-bottom:10px}h2{color:#0B2545;font-size:12px;text-align:center;font-style:italic;margin-top:0}pre{white-space:pre-wrap;font-family:Georgia,serif;font-size:13px;line-height:1.8}.ft{margin-top:40px;text-align:center;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px}</style></head><body><h1>${PLANTILLAS[plantilla].titulo}</h1><h2>${PLANTILLAS[plantilla].subtitulo}</h2><pre>${PLANTILLAS[plantilla].cuerpo}</pre><div class="ft">Plantilla de uso interno \u2014 Factor Legal S.A.S. \u2014 Confidencial</div></body></html>`;
-                  dl(html,`Plantilla_${plantilla}_FactorLegal.doc`,"application/msword");
-                }} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:6,border:"none",background:C.gold,color:C.navy,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>
-                  <Download size={12}/>WORD
-                </button>
+              <div style={{fontSize:11,fontWeight:"bold",letterSpacing:"0.1em",color:C.navy,marginBottom:8}}>CASO PARA EL CONTRATO</div>
+              <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:500,overflowY:"auto"}}>
+                {casosConAlertas.map(c=>(
+                  <button key={c.id} onClick={()=>setContratoCasoId(c.id)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"white",border:`1px solid ${contratoCasoId===c.id?C.navy:C.greySoft}`,borderLeft:contratoCasoId===c.id?`3px solid ${C.navy}`:`1px solid ${C.greySoft}`,borderRadius:5,cursor:"pointer",textAlign:"left"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:"bold",color:C.navy}}>{c.codigo}</div>
+                      <div style={{fontSize:10,color:C.greyMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.demandanteNombre||"—"}</div>
+                    </div>
+                  </button>
+                ))}
+                {casosConAlertas.length===0&&(
+                  <div style={{padding:24,textAlign:"center",fontSize:12,fontStyle:"italic",color:C.greyMid}}>Sin casos</div>
+                )}
               </div>
             </div>
-            <div style={{padding:32}}>
-              <div style={{background:C.amberSoft,border:`1px solid ${C.gold}`,borderRadius:6,padding:"10px 16px",marginBottom:20,fontSize:11,color:C.charcoal,display:"flex",alignItems:"center",gap:8}}>
-                <AlertCircle size={13} style={{color:C.amber,flexShrink:0}}/>
-                <span>Plantilla de referencia. Los campos entre [CORCHETES] deben ser completados para cada operaci\u00F3n. Siempre revisar con el equipo jur\u00EDdico antes de suscribir.</span>
-              </div>
-              <pre style={{whiteSpace:"pre-wrap",fontFamily:"Georgia,serif",fontSize:13,color:C.charcoal,lineHeight:1.9,margin:0}}>{PLANTILLAS[plantilla].cuerpo}</pre>
+            {/* Panel derecho: contrato */}
+            <div>
+              {contratoCaso?(
+                <ContratoVisor caso={contratoCaso} tipo={plantillaTipo}/>
+              ):(
+                <div style={{background:C.greyBg,border:`1px solid ${C.greySoft}`,borderRadius:8,padding:48,textAlign:"center"}}>
+                  <FileText size={32} style={{color:C.greyMid,margin:"0 auto 12px"}}/>
+                  <div style={{fontSize:13,color:C.greyMid,fontWeight:"bold",marginBottom:4}}>Selecciona un caso</div>
+                  <div style={{fontSize:11,color:C.greyMid,fontStyle:"italic"}}>El contrato se auto-poblará con los datos del caso</div>
+                </div>
+              )}
             </div>
           </div>
         </div>
